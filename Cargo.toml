@@ -1,0 +1,34 @@
+[package]
+name = "calendar-hub"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.68"
+axum = { version = "0.6.2", features = ["original-uri"] }
+axum-sessions = "0.5.0"
+base64-url = "2.0.0"
+chrono = "0.4.24"
+env_logger = "0.10.0"
+futures = "0.3.28"
+google-calendar3 = "5.0.2"
+hmac = "0.12.1"
+hyper = "0.14.26"
+itertools = "0.10.5"
+jwt = "0.16.0"
+log = "0.4.17"
+once_cell = "1.17.0"
+regex = "1.7.3"
+reqwest = { version = "0.11.13", features = ["cookies", "serde_json", "json", "rustls-tls-native-roots"], default_features = false }
+rsa = "0.9.0"
+scraper = "0.16.0"
+serde = "1.0.160"
+serde_json = "1.0.96"
+sha2 = { version = "0.10.6", features = ["oid"] }
+sqlx = { version = "0.6.2", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
+tokio = { version = "1.24.1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
+tokio-cron-scheduler = "0.9.1"
+tokio-stream = "0.1.12"
+uuid = { version = "1.3.1", features = ["v4", "serde"] }
