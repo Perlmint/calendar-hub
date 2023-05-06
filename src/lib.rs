@@ -113,12 +113,12 @@ impl CalendarEvent {
                     .push_bind(user_id)
                     .push_bind(&event.title)
                     .push_bind(&event.detail)
-                    .push_bind(&event.date_begin)
-                    .push_bind(&event.time_begin)
-                    .push_bind(&event.date_end)
-                    .push_bind(&event.time_end)
-                    .push_bind(&event.invalid)
-                    .push_bind(&now);
+                    .push_bind(event.date_begin)
+                    .push_bind(event.time_begin)
+                    .push_bind(event.date_end)
+                    .push_bind(event.time_end)
+                    .push_bind(event.invalid)
+                    .push_bind(now);
             })
             .push(
                 r#"ON CONFLICT DO UPDATE SET
@@ -127,7 +127,7 @@ impl CalendarEvent {
                 date_end=excluded.date_end, time_end=excluded.time_end,
                 invalid=excluded.invalid, updated_at="#,
             )
-            .push_bind(&now)
+            .push_bind(now)
             .push(
                 r#"WHERE 
                 title !=excluded.title OR detail != excluded.detail OR

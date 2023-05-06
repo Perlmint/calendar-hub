@@ -166,7 +166,7 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
                     Ok(naver_user) => {
                         let user_id = naver_user.user_id();
 
-                        let _ = user_id_sender.send(user_id).unwrap();
+                        user_id_sender.send(user_id).unwrap();
 
                         if let Err(e) = naver_user.fetch(db.clone()).await {
                             error!(

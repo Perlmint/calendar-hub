@@ -1,7 +1,9 @@
 use std::str::FromStr;
 
 use anyhow::{anyhow, Context};
-use chrono::{Datelike, FixedOffset, Timelike};
+#[allow(unused_imports)]
+use chrono::Timelike; // false warning
+use chrono::{Datelike, FixedOffset};
 use futures::StreamExt;
 use itertools::Itertools;
 use log::info;
@@ -143,7 +145,7 @@ impl NaverUser {
         .with_context(|| format!("Failed to get naver_user of {user_id:?}"))
     }
 
-    pub fn all<'a>(db: &'a SqlitePool) -> impl futures::Stream<Item = anyhow::Result<Self>> + 'a {
+    pub fn all(db: &SqlitePool) -> impl futures::Stream<Item = anyhow::Result<Self>> + '_ {
         sqlx::query_as!(
             Self,
             "SELECT `user_id` as `user_id: UserId`, `aut`, `ses` FROM `naver_user`"
