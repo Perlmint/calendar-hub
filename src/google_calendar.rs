@@ -72,18 +72,19 @@ impl IntoGoogleEventDateTime for (NaiveDate, Option<NaiveTime>) {
     }
 }
 
-impl Into<Event> for CalendarEvent {
-    fn into(self) -> Event {
-        let start = (self.date_begin, self.time_begin).into_google();
+impl From<CalendarEvent> for Event {
+    fn from(event: CalendarEvent) -> Event {
+        let start = (event.date_begin, event.time_begin).into_google();
         Event {
-            description: Some(self.detail),
+            description: Some(event.detail),
             end: Some(
-                self.date_end
-                    .map(|date| (date, self.time_end).into_google())
+                event
+                    .date_end
+                    .map(|date| (date, event.time_end).into_google())
                     .unwrap_or_else(|| start.clone()),
             ),
             start: Some(start),
-            summary: Some(self.title),
+            summary: Some(event.title),
             ..Default::default()
         }
     }
@@ -277,7 +278,7 @@ async fn begin_login(
     Extension(config): Extension<Config>,
     Extension(contexts): Extension<Arc<Mutex<LoginContextMap>>>,
 ) -> Response {
-    if let Some(_) = session.get::<UserId>("user_id") {
+    if session.get::<UserId>("user_id").is_some() {
         return Redirect::to("://").into_response();
     }
 
@@ -289,7 +290,7 @@ async fn begin_login(
     contexts
         .lock()
         .await
-        .insert(id.clone(), (code_sender, user_id_receiver));
+        .insert(id, (code_sender, user_id_receiver));
 
     tokio::spawn(async move {
         let auth = oauth2::InstalledFlowAuthenticator::builder(
@@ -554,7 +555,7 @@ impl GoogleUser {
             let reservation_id: String = google_event.get_unchecked(1);
             if let Some(reservation) = reservations.remove(&reservation_id) {
                 if reservation.invalid {
-                    if let Err(_) = hub
+                    if let Err(_e) = hub
                         .events()
                         .delete(&self.calendar_id, &event_id)
                         .doit()
@@ -562,15 +563,13 @@ impl GoogleUser {
                     {
                         // TODO: handle error
                     }
-                } else {
-                    if let Err(_) = hub
-                        .events()
-                        .patch(reservation.into(), &self.calendar_id, &event_id)
-                        .doit()
-                        .await
-                    {
-                        // TODO: handle error
-                    }
+                } else if let Err(_e) = hub
+                    .events()
+                    .patch(reservation.into(), &self.calendar_id, &event_id)
+                    .doit()
+                    .await
+                {
+                    // TODO: handle error
                 }
             }
         }
