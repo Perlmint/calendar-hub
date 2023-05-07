@@ -21,9 +21,6 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!().run(&db_pool).await?;
     info!("DB migration completed");
 
-    let google_secret =
-        Arc::new(google_calendar3::oauth2::read_application_secret("google.json").await?);
-
     let scheduler = JobScheduler::new().await?;
     scheduler
         .add(Job::new_async("0 0,30 * * * *", {
@@ -50,7 +47,6 @@ async fn main() -> anyhow::Result<()> {
         "/google",
         calendar_hub::google_calendar::web_router(
             calendar_hub::google_calendar::Config::new(
-                google_secret.clone(),
                 Arc::new(format!("{url_prefix}/google")),
             )
             .await

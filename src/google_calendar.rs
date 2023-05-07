@@ -1,6 +1,8 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     future::Future,
+    io::BufRead,
+    path::Path,
     pin::Pin,
     sync::Arc,
 };
@@ -16,7 +18,7 @@ use axum_sessions::extractors::{ReadableSession, WritableSession};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use hyper::StatusCode;
 use jwt::VerifyingAlgorithm;
-use log::error;
+use log::{error, info};
 use rsa::{pkcs8::AssociatedOid, Pkcs1v15Sign, RsaPublicKey};
 use sha2::Digest;
 use sqlx::{Row, SqlitePool};
@@ -28,7 +30,7 @@ use google_calendar3::{
     oauth2::{self, authenticator_delegate::InstalledFlowDelegate},
     CalendarHub,
 };
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, Mutex, RwLock};
 use uuid::Uuid;
 
 use crate::{CalendarEvent, UserId};
@@ -94,6 +96,7 @@ const CALENDAR_SCOPE: &[&str] = &[
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/calendar.events",
     "openid",
+    "email",
 ];
 
 #[repr(transparent)]
@@ -108,7 +111,7 @@ type LoginContextMap = HashMap<
     Uuid,
     (
         oneshot::Sender<LoginCallbackCode>,
-        oneshot::Receiver<UserId>,
+        oneshot::Receiver<Option<UserId>>,
     ),
 >;
 
@@ -215,18 +218,20 @@ pub struct Config {
     secret: Arc<oauth2::ApplicationSecret>,
     url_prefix: Arc<String>,
     google_key_store: Arc<BTreeMap<String, RsaVerifying>>,
+    allowed_emails: AllowedEmails,
 }
 
 impl Config {
-    pub async fn new(
-        secret: Arc<oauth2::ApplicationSecret>,
-        url_prefix: Arc<String>,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(url_prefix: Arc<String>) -> anyhow::Result<Self> {
+        let secret =
+            Arc::new(google_calendar3::oauth2::read_application_secret("google.json").await?);
         let google_key_store = fetch_google_key_store().await?;
+        let allowed_emails = AllowedEmails::new("allowed-emails").await?;
         Ok(Self {
             secret,
             url_prefix,
             google_key_store: Arc::new(google_key_store),
+            allowed_emails,
         })
     }
 }
@@ -272,6 +277,62 @@ async fn fetch_google_key_store() -> anyhow::Result<BTreeMap<String, RsaVerifyin
     Ok(ret)
 }
 
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+struct AllowedEmails(Arc<RwLock<HashSet<String>>>);
+
+impl AsRef<RwLock<HashSet<String>>> for AllowedEmails {
+    fn as_ref(&self) -> &RwLock<HashSet<String>> {
+        self.0.as_ref()
+    }
+}
+
+impl AllowedEmails {
+    async fn new(path: impl AsRef<Path> + Send + Clone + 'static) -> anyhow::Result<AllowedEmails> {
+        let ret = tokio::task::block_in_place(|| Self::read_from_file(path.as_ref()))?;
+        let ret = Arc::new(RwLock::new(ret));
+        {
+            let data = ret.clone();
+            let mut watcher = {
+                let path = path.clone();
+                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                    if res.is_ok() {
+                        match Self::read_from_file(path.as_ref()) {
+                            Ok(value) => {
+                                info!("allowed-emails {} items reloaded", value.len());
+                                *data.blocking_write() = value;
+                            }
+                            Err(e) => error!("Failed to reload allowed-emails - {e:?}"),
+                        }
+                    }
+                })?
+            };
+            use notify::{RecursiveMode, Watcher};
+            watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
+        }
+
+        Ok(Self(ret))
+    }
+
+    fn read_from_file(path: impl AsRef<Path>) -> anyhow::Result<HashSet<String>> {
+        let file = std::io::BufReader::new(std::fs::File::open(path.as_ref())?);
+        let lines = file.lines();
+
+        lines
+            .filter_map(|line| {
+                line.map(|mut line| {
+                    (!line.is_empty()).then(move || {
+                        line.shrink_to(line.trim().len());
+                        line
+                    })
+                })
+                .context("Failed to read allowed-emails")
+                .transpose()
+            })
+            .collect()
+    }
+}
+
 async fn begin_login(
     session: ReadableSession,
     Extension(db): Extension<SqlitePool>,
@@ -314,15 +375,30 @@ async fn begin_login(
             .unwrap();
         let token = token.token().unwrap();
 
-        let subject = {
+        let (subject, email) = {
             use jwt::VerifyWithStore;
 
             let id_token = auth.id_token(CALENDAR_SCOPE).await.unwrap().unwrap();
             let mut claims: BTreeMap<String, serde_json::Value> = id_token
                 .verify_with_store(&*config.google_key_store)
                 .unwrap();
-            claims.remove("sub").unwrap()
+            (
+                claims.remove("sub").unwrap(),
+                claims.remove("email").unwrap(),
+            )
         };
+
+        if config
+            .allowed_emails
+            .as_ref()
+            .read()
+            .await
+            .get(email.as_str().unwrap())
+            .is_none()
+        {
+            user_id_sender.send(None).unwrap();
+            return;
+        }
 
         let subject = subject.as_str().unwrap();
 
@@ -405,7 +481,7 @@ async fn begin_login(
         };
 
         user_id_sender
-            .send(user_id)
+            .send(Some(user_id))
             .map_err(|_| "Failed to send user_id to callback handler")
             .unwrap();
     });
@@ -434,13 +510,17 @@ async fn login_callback(
             .unwrap();
         let user_id = user_id_receiver
             .await
-            .map_err(|e| format!("Failed to receive logged in user id - {e:?}"));
-        session
-            .insert("user_id", user_id)
-            .context("Failed to insert user_id into session")
+            .map_err(|e| format!("Failed to receive logged in user id - {e:?}"))
             .unwrap();
-
-        "".into_response()
+        if user_id.is_some() {
+            session
+                .insert("user_id", user_id)
+                .context("Failed to insert user_id into session")
+                .unwrap();
+            Redirect::to("/").into_response()
+        } else {
+            StatusCode::FORBIDDEN.into_response()
+        }
     } else {
         StatusCode::BAD_REQUEST.into_response()
     }
