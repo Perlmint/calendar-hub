@@ -19,6 +19,7 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use hyper::StatusCode;
 use jwt::VerifyingAlgorithm;
 use log::{error, info};
+use notify::{event::ModifyKind, EventKind, RecommendedWatcher};
 use rsa::{pkcs8::AssociatedOid, Pkcs1v15Sign, RsaPublicKey};
 use sha2::Digest;
 use sqlx::{Row, SqlitePool};
@@ -219,6 +220,7 @@ pub struct Config {
     url_prefix: Arc<String>,
     google_key_store: Arc<BTreeMap<String, RsaVerifying>>,
     allowed_emails: AllowedEmails,
+    _watcher: Arc<RecommendedWatcher>,
 }
 
 impl Config {
@@ -226,12 +228,13 @@ impl Config {
         let secret =
             Arc::new(google_calendar3::oauth2::read_application_secret("google.json").await?);
         let google_key_store = fetch_google_key_store().await?;
-        let allowed_emails = AllowedEmails::new("allowed-emails").await?;
+        let (allowed_emails, watcher) = AllowedEmails::new("allowed-emails").await?;
         Ok(Self {
             secret,
             url_prefix,
             google_key_store: Arc::new(google_key_store),
             allowed_emails,
+            _watcher: Arc::new(watcher),
         })
     }
 }
@@ -288,15 +291,18 @@ impl AsRef<RwLock<HashSet<String>>> for AllowedEmails {
 }
 
 impl AllowedEmails {
-    async fn new(path: impl AsRef<Path> + Send + Clone + 'static) -> anyhow::Result<AllowedEmails> {
+    async fn new(
+        path: impl AsRef<Path> + Send + Clone + 'static,
+    ) -> anyhow::Result<(AllowedEmails, RecommendedWatcher)> {
         let ret = tokio::task::block_in_place(|| Self::read_from_file(path.as_ref()))?;
         let ret = Arc::new(RwLock::new(ret));
-        {
-            let data = ret.clone();
-            let mut watcher = {
-                let path = path.clone();
-                notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-                    if res.is_ok() {
+
+        let data = ret.clone();
+        let mut watcher = {
+            let path = path.clone();
+            notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+                if let Ok(res) = res {
+                    if let EventKind::Modify(ModifyKind::Data(_)) = res.kind {
                         match Self::read_from_file(path.as_ref()) {
                             Ok(value) => {
                                 info!("allowed-emails {} items reloaded", value.len());
@@ -305,13 +311,13 @@ impl AllowedEmails {
                             Err(e) => error!("Failed to reload allowed-emails - {e:?}"),
                         }
                     }
-                })?
-            };
-            use notify::{RecursiveMode, Watcher};
-            watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
-        }
+                }
+            })?
+        };
+        use notify::{RecursiveMode, Watcher};
+        watcher.watch(path.as_ref(), RecursiveMode::NonRecursive)?;
 
-        Ok(Self(ret))
+        Ok((Self(ret), watcher))
     }
 
     fn read_from_file(path: impl AsRef<Path>) -> anyhow::Result<HashSet<String>> {
