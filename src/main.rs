@@ -77,9 +77,11 @@ async fn main() -> anyhow::Result<()> {
         }
         unsafe { buffer.assume_init() }
     };
-    let app = app
-        .layer(Extension(db_pool))
-        .layer(SessionLayer::new(MemoryStore::new(), &session_secret));
+    let app = app.layer(Extension(db_pool)).layer(
+        SessionLayer::new(MemoryStore::new(), &session_secret)
+            .with_secure(url_prefix.starts_with("https"))
+            .with_persistence_policy(PersistencePolicy::ChangedOnly),
+    );
 
     let (stop_sender, stop_receiver) = tokio::sync::oneshot::channel();
 
