@@ -190,7 +190,7 @@ macro_rules! selector {
 macro_rules! url {
     ($url:literal) => {{
         static URL: once_cell::sync::OnceCell<reqwest::Url> = once_cell::sync::OnceCell::new();
-        URL.get_or_init(|| reqwest::Url::from_str($url).unwrap())
+        URL.get_or_init(|| <reqwest::Url as std::str::FromStr>::from_str($url).unwrap())
     }};
 }
 
