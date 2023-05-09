@@ -1,6 +1,7 @@
 use log::info;
 use sqlx::SqlitePool;
 
+pub mod catch_table;
 pub mod google_calendar;
 pub mod naver_reservation;
 
