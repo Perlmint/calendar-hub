@@ -18,7 +18,7 @@ use axum_sessions::extractors::{ReadableSession, WritableSession};
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use hyper::StatusCode;
 use jwt::VerifyingAlgorithm;
-use log::{error, info};
+use log::{debug, error, info};
 use notify::{event::ModifyKind, EventKind, RecommendedWatcher};
 use rsa::{pkcs8::AssociatedOid, Pkcs1v15Sign, RsaPublicKey};
 use sha2::Digest;
@@ -26,7 +26,7 @@ use sqlx::{Row, SqlitePool};
 
 use anyhow::Context;
 use google_calendar3::{
-    api::{Calendar, Event, EventDateTime},
+    api::{AclRule, AclRuleScope, Calendar, Event, EventDateTime},
     hyper, hyper_rustls,
     oauth2::{self, authenticator_delegate::InstalledFlowDelegate},
     CalendarHub,
@@ -214,28 +214,42 @@ impl VerifyingAlgorithm for RsaVerifying {
     }
 }
 
-#[derive(Clone)]
 pub struct Config {
-    secret: Arc<oauth2::ApplicationSecret>,
-    url_prefix: Arc<String>,
-    google_key_store: Arc<BTreeMap<String, RsaVerifying>>,
+    secret: oauth2::ApplicationSecret,
+    url_prefix: String,
+    google_key_store: BTreeMap<String, RsaVerifying>,
+    service_account: google_calendar3::oauth2::ServiceAccountKey,
     allowed_emails: AllowedEmails,
-    _watcher: Arc<RecommendedWatcher>,
+    _watcher: RecommendedWatcher,
 }
 
+static SHARED_CONFIG: once_cell::sync::OnceCell<Arc<Config>> = once_cell::sync::OnceCell::new();
+
 impl Config {
-    pub async fn new(url_prefix: Arc<String>) -> anyhow::Result<Self> {
-        let secret =
-            Arc::new(google_calendar3::oauth2::read_application_secret("google.json").await?);
+    pub async fn init(url_prefix: String) -> anyhow::Result<()> {
+        let secret = google_calendar3::oauth2::read_application_secret("google.json").await?;
         let google_key_store = fetch_google_key_store().await?;
         let (allowed_emails, watcher) = AllowedEmails::new("allowed-emails").await?;
-        Ok(Self {
-            secret,
-            url_prefix,
-            google_key_store: Arc::new(google_key_store),
-            allowed_emails,
-            _watcher: Arc::new(watcher),
-        })
+        let service_account =
+            google_calendar3::oauth2::read_service_account_key("service_account.json").await?;
+
+        SHARED_CONFIG
+            .set(Arc::new(Self {
+                secret,
+                url_prefix,
+                google_key_store: google_key_store,
+                service_account,
+                allowed_emails,
+                _watcher: watcher,
+            }))
+            .map_err(|_| anyhow::anyhow!("Config init should be called only once"))
+    }
+
+    pub fn get() -> Arc<Self> {
+        SHARED_CONFIG
+            .get()
+            .expect("google config is not initialized yet")
+            .clone()
     }
 }
 
@@ -342,10 +356,10 @@ impl AllowedEmails {
 async fn begin_login(
     session: ReadableSession,
     Extension(db): Extension<SqlitePool>,
-    Extension(config): Extension<Config>,
     Extension(contexts): Extension<Arc<Mutex<LoginContextMap>>>,
 ) -> Response {
-    if session.get::<UserId>("user_id").is_some() {
+    if let Some(session) = session.get::<UserId>("user_id") {
+        debug!("Already logged in redirect to main - {session:?}");
         return Redirect::to("://").into_response();
     }
 
@@ -360,8 +374,10 @@ async fn begin_login(
         .insert(id, (code_sender, user_id_receiver));
 
     tokio::spawn(async move {
+        let config = Config::get();
+
         let auth = oauth2::InstalledFlowAuthenticator::builder(
-            (*config.secret).clone(),
+            config.secret.clone(),
             oauth2::InstalledFlowReturnMethod::Interactive,
         )
         .flow_delegate(Box::new(LoginDelegate {
@@ -374,19 +390,12 @@ async fn begin_login(
         .context("Failed to installed flow")
         .unwrap();
 
-        let token = auth
-            .token(CALENDAR_SCOPE)
-            .await
-            .context("Failed to fetch token")
-            .unwrap();
-        let token = token.token().unwrap();
-
         let (subject, email) = {
             use jwt::VerifyWithStore;
 
             let id_token = auth.id_token(CALENDAR_SCOPE).await.unwrap().unwrap();
             let mut claims: BTreeMap<String, serde_json::Value> = id_token
-                .verify_with_store(&*config.google_key_store)
+                .verify_with_store(&config.google_key_store)
                 .unwrap();
             (
                 claims.remove("sub").unwrap(),
@@ -408,41 +417,64 @@ async fn begin_login(
 
         let subject = subject.as_str().unwrap();
 
-        let user_id = sqlx::query!(
-            "SELECT `user_id` as `user_id:UserId` FROM `google_user` WHERE `subject` = ?",
+        let user_info = sqlx::query!(
+            "SELECT `user_id` as `user_id:UserId`, `calendar_id`, `acl_id` FROM `google_user` WHERE `subject` = ?",
             subject
         )
         .fetch_optional(&db)
         .await
         .unwrap()
-        .map(|record| record.user_id);
+        .map(|record| (record.user_id, record.calendar_id, record.acl_id));
 
-        let user_id = if let Some(user_id) = user_id {
-            sqlx::query!(
-                r#"UPDATE `google_user`
-                SET `access_token` = ?
-                WHERE `user_id` = ?"#,
-                token,
-                user_id
-            )
-            .execute(&db)
-            .await
-            .with_context(|| format!("Failed to update google_user for {user_id:?}"))
-            .unwrap();
-            user_id
+        let calendar_hub = CalendarHub::new(
+            hyper::Client::builder().build(
+                hyper_rustls::HttpsConnectorBuilder::new()
+                    .with_native_roots()
+                    .https_or_http()
+                    .enable_http1()
+                    .enable_http2()
+                    .build(),
+            ),
+            auth,
+        );
+
+        // validate calendar_id & acl_id, make sure user_id is valid
+        let (user_id, calendar_id, acl_id) = if let Some((user_id, calendar_id, acl_id)) = user_info
+        {
+            if let Err(e) = calendar_hub.calendars().get(&calendar_id).doit().await {
+                (user_id, None, None)
+            } else if let Some(acl_id) = acl_id {
+                let acl_id = if calendar_hub
+                    .acl()
+                    .get(&calendar_id, &acl_id)
+                    .doit()
+                    .await
+                    .is_ok()
+                {
+                    Some(acl_id)
+                } else {
+                    None
+                };
+                (user_id, Some(calendar_id), acl_id)
+            } else {
+                (user_id, Some(calendar_id), None)
+            }
         } else {
-            let calendar_hub = CalendarHub::new(
-                hyper::Client::builder().build(
-                    hyper_rustls::HttpsConnectorBuilder::new()
-                        .with_native_roots()
-                        .https_or_http()
-                        .enable_http1()
-                        .enable_http2()
-                        .build(),
-                ),
-                auth,
+            let user_id = UserId(
+                sqlx::query!("INSERT INTO `user` (`dummy`) VALUES (0)")
+                    .execute(&db)
+                    .await
+                    .context("Failed to insert new user")
+                    .unwrap()
+                    .last_insert_rowid() as _,
             );
-            let calendar_id = calendar_hub
+
+            (user_id, None, None)
+        };
+
+        let calendar_id = match calendar_id {
+            Some(calendar_id) => calendar_id,
+            None => calendar_hub
                 .calendars()
                 .insert(Calendar {
                     summary: Some("Calendar hub".to_string()),
@@ -454,37 +486,53 @@ async fn begin_login(
                 .unwrap()
                 .1
                 .id
-                .unwrap();
-
-            let user_id = UserId(
-                sqlx::query!("INSERT INTO `user` (`dummy`) VALUES (0)")
-                    .execute(&db)
-                    .await
-                    .context("Failed to insert new user")
-                    .unwrap()
-                    .last_insert_rowid() as _,
-            );
-
-            let minimum_date_time =
-                chrono::DateTime::<chrono::Utc>::from_utc(chrono::NaiveDateTime::MIN, chrono::Utc);
-            sqlx::query!(
-                r#"INSERT INTO `google_user`
-                (`user_id`, `access_token`, `calendar_id`, `last_synced`, `subject`)
-                VALUES
-                (?, ?, ?, ?, ?)"#,
-                user_id,
-                token,
-                calendar_id,
-                minimum_date_time,
-                subject
-            )
-            .execute(&db)
-            .await
-            .context("Failed to insert into google_user")
-            .unwrap();
-
-            user_id
+                .unwrap(),
         };
+
+        let acl_id = match acl_id {
+            Some(id) => id,
+            None => calendar_hub
+                .acl()
+                .insert(
+                    AclRule {
+                        etag: None,
+                        id: None,
+                        kind: None,
+                        role: Some("writer".to_string()),
+                        scope: Some(AclRuleScope {
+                            type_: Some("user".to_string()),
+                            value: Some(config.service_account.client_email.clone()),
+                        }),
+                    },
+                    &calendar_id,
+                )
+                .doit()
+                .await
+                .unwrap()
+                .1
+                .id
+                .expect("Id of AclRule in Response should be set"),
+        };
+
+        let minimum_date_time =
+            chrono::DateTime::<chrono::Utc>::from_utc(chrono::NaiveDateTime::MIN, chrono::Utc);
+        sqlx::query!(
+            r#"INSERT INTO `google_user`
+            (`user_id`, `calendar_id`, `acl_id`, `last_synced`, `subject`)
+            VALUES
+            (?, ?, ?, ?, ?)
+            ON CONFLICT DO UPDATE SET
+            `calendar_id`=`excluded`.`calendar_id`, `acl_id`=`excluded`.`acl_id`"#,
+            user_id,
+            calendar_id,
+            acl_id,
+            minimum_date_time,
+            subject
+        )
+        .execute(&db)
+        .await
+        .context("Failed to insert into google_user")
+        .unwrap();
 
         user_id_sender
             .send(Some(user_id))
@@ -518,34 +566,34 @@ async fn login_callback(
             .await
             .map_err(|e| format!("Failed to receive logged in user id - {e:?}"))
             .unwrap();
-        if user_id.is_some() {
+        if let Some(user_id) = user_id {
+            debug!("Successfully logged in");
             session
                 .insert("user_id", user_id)
                 .context("Failed to insert user_id into session")
                 .unwrap();
             Redirect::to("/").into_response()
         } else {
+            debug!("Not allowed");
             StatusCode::FORBIDDEN.into_response()
         }
     } else {
+        debug!("Invalid request");
         StatusCode::BAD_REQUEST.into_response()
     }
 }
 
 pub fn web_router<S: Sync + Send + Clone + 'static, B: HttpBody + Send + 'static>(
-    config: Config,
 ) -> axum::Router<S, B> {
     let login_contexts = Arc::new(Mutex::new(LoginContextMap::new()));
     axum::Router::new()
         .route("/login", get(begin_login))
         .route("/callback", get(login_callback))
-        .layer(Extension(config))
         .layer(Extension(login_contexts))
 }
 
 pub struct GoogleUser {
     user_id: UserId,
-    access_token: String,
     calendar_id: String,
     last_synced: NaiveDateTime,
 }
@@ -556,7 +604,6 @@ impl GoogleUser {
             GoogleUser,
             r#"SELECT
                 `user_id` as `user_id: UserId`,
-                `access_token`,
                 `calendar_id`,
                 `last_synced`
             FROM `google_user`
@@ -590,22 +637,11 @@ impl GoogleUser {
         .map(|item| (item.id.clone(), item))
         .collect();
 
-        // Refresh access token when needed
-        let auth = oauth2::AccessTokenAuthenticator::builder(self.access_token.clone())
+        let config = Config::get();
+
+        let auth = oauth2::ServiceAccountAuthenticator::builder(config.service_account.clone())
             .build()
             .await?;
-        let token = auth.token(CALENDAR_SCOPE).await?;
-        let token = token.token().unwrap();
-        if self.access_token != token {
-            sqlx::query!(
-                "UPDATE `google_user` SET `access_token` = ? WHERE `user_id` = ?",
-                token,
-                self.user_id,
-            )
-            .execute(db)
-            .await
-            .context("Failed to update access token")?;
-        }
 
         if reservations.is_empty() {
             return Ok(());

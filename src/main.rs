@@ -42,20 +42,22 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(|| async { "" }))
-        .route("/update", get(poll_user));
-    let app = app.nest(
-        "/google",
-        calendar_hub::google_calendar::web_router(
-            calendar_hub::google_calendar::Config::new(
-                Arc::new(format!("{url_prefix}/google")),
-            )
+    calendar_hub::google_calendar::Config::init(format!("{url_prefix}/api/google"))
             .await
-            .unwrap(),
-        ),
-    );
+            .unwrap();
 
-    #[cfg(debug_assertions)]
-    let app = app.route("/poll_force", get(poll_dev));
+    let app = Router::new().fallback(static_res::serve).nest("/api", {
+        let router = Router::new().route("/update", get(poll_user));
+        let router = router.nest(
+            "/google",
+            calendar_hub::google_calendar::web_router(),
+        );
+        let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
+
+        #[cfg(debug_assertions)]
+        let router = router.route("/poll_force", get(poll_dev));
+        router
+    });
 
     let session_secret = {
         let mut buffer = std::mem::MaybeUninit::<[u8; 64]>::uninit();
