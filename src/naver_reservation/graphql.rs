@@ -56,7 +56,7 @@ struct Booking2 {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct BookingWrap {
+pub(super) struct BookingWrap {
     booking_status_code: ReservationStatusCode,
     // is_completed: bool,
     // start_date: chrono::NaiveDate,
@@ -136,6 +136,27 @@ impl Booking {
                     None,
                 )
             }
+        })
+    }
+
+}
+
+impl TryFrom<BookingWrap> for CalendarEvent {
+    type Error = anyhow::Error;
+
+    fn try_from(booking: BookingWrap) -> Result<Self, Self::Error> {
+        let id = format!("naver/{}", booking.snapshot_json.booking_id);
+        let (date_begin, time_begin, date_end, time_end) = booking.snapshot_json.get_date_time()?;
+
+        Ok(CalendarEvent {
+            id,
+            title: booking.snapshot_json.service_name,
+            detail: booking.snapshot_json.business_item_name,
+            invalid: booking.booking_status_code == ReservationStatusCode::Cancelled,
+            date_begin,
+            time_begin,
+            date_end,
+            time_end,
         })
     }
 }
