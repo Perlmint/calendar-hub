@@ -29,6 +29,7 @@ rsa = "0.9.0"
 scraper = "0.16.0"
 serde = "1.0.160"
 serde_json = "1.0.96"
+serde_with = "3.0.0"
 sha2 = { version = "0.10.6", features = ["oid"] }
 sqlx = { version = "0.6.2", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
 tokio = { version = "1.24.1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
