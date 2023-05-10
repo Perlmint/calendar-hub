@@ -122,19 +122,19 @@ impl CalendarEvent {
                     .push_bind(now);
             })
             .push(
-                r#"ON CONFLICT DO UPDATE SET
-                title=excluded.title, detail=excluded.detail,
-                date_begin=excluded.date_begin, time_begin=excluded.time_begin,
-                date_end=excluded.date_end, time_end=excluded.time_end,
-                invalid=excluded.invalid, updated_at="#,
+                r#"ON CONFLICT(`id`, `user_id`) DO UPDATE SET
+                `title`=`excluded`.`title`, `detail`=`excluded`.`detail`,
+                `date_begin`=`excluded`.`date_begin`, `time_begin`=`excluded`.`time_begin`,
+                `date_end`=`excluded`.`date_end`, `time_end`=`excluded`.`time_end`,
+                `invalid`=`excluded`.`invalid`, `updated_at`="#,
             )
             .push_bind(now)
             .push(
                 r#"WHERE 
-                title !=excluded.title OR detail != excluded.detail OR
-                date_begin != excluded.date_begin OR time_begin != excluded.time_begin OR
-                date_end != excluded.date_end OR time_end != excluded.time_end OR
-                invalid != excluded.invalid"#,
+                `reservation`.`title` IS NOT `excluded`.`title` OR `reservation`.`detail` IS NOT `excluded`.`detail` OR
+                `reservation`.`date_begin` IS NOT `excluded`.`date_begin` OR `reservation`.`time_begin` IS NOT `excluded`.`time_begin` OR
+                `reservation`.`date_end` IS NOT `excluded`.`date_end` OR `reservation`.`time_end` IS NOT `excluded`.`time_end` OR
+                `reservation`.`invalid` IS NOT `excluded`.`invalid` OR `reservation`.`url` IS NOT `excluded`.`url`"#,
             )
             .build()
             .execute(db)
