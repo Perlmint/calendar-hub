@@ -1,14 +1,117 @@
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, ffi::OsStr, path::Path, sync::Arc};
 
-use axum::{routing::get, Extension, Router};
-use axum_sessions::{async_session::MemoryStore, extractors::ReadableSession, SessionLayer};
+use axum::{
+    body::{Bytes, StreamBody},
+    http::HeaderValue,
+    response::{IntoResponse, Response},
+    routing::get,
+    BoxError, Extension, Router, Json,
+};
+use axum_sessions::{
+    async_session::MemoryStore, extractors::ReadableSession, PersistencePolicy, SessionLayer,
+};
 use calendar_hub::{google_calendar::GoogleUser, naver_reservation::NaverUser, UserId};
-use log::{error, info};
+use futures::{Future, TryStream};
+use hyper::{header, Uri};
+use log::{debug, error, info};
 use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+
+async fn serve_static_res<S, F, FUT>(uri: Uri, f: F) -> Response
+where
+    F: FnOnce(&str) -> FUT,
+    FUT: Future<Output = StreamBody<S>>,
+    S: TryStream + Send + 'static,
+    S::Ok: Into<Bytes>,
+    S::Error: Into<BoxError>,
+{
+    let path = uri.path();
+    debug!("static resource requested - {path}");
+
+    let body = f(&path).await;
+    let mime = {
+        let path: &Path = path.as_ref();
+        let extension = path
+            .extension()
+            .map(OsStr::to_str)
+            .flatten()
+            .unwrap_or("html");
+        mime_guess::from_ext(extension)
+    };
+    (
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(&mime.first_or_octet_stream().to_string()).unwrap(),
+        )],
+        body,
+    )
+        .into_response()
+}
+
+#[cfg(feature = "embed_web")]
+mod static_res {
+    use axum::{body::StreamBody, response::Response};
+    use futures::Future;
+    use hyper::Uri;
+    use include_dir::{include_dir, Dir};
+    use tokio_util::io::ReaderStream;
+
+    static DATA: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/dist");
+
+    pub async fn serve(uri: Uri) -> Response {
+        super::serve_static_res(uri, |path| {
+            let path = path.strip_prefix('/').unwrap_or(path);
+            let file = DATA.get_file(&path).unwrap_or_else(|| {
+                log::debug!("Fallback to index.html");
+                DATA.get_file("index.html").unwrap()
+            });
+            futures::future::ready(StreamBody::new(ReaderStream::new(file.contents())))
+        })
+        .await
+    }
+
+    pub async fn init() {}
+}
+#[cfg(not(feature = "embed_web"))]
+mod static_res {
+    use std::path::Path;
+
+    use axum::{body::StreamBody, response::Response};
+    use hyper::Uri;
+    use log::debug;
+    use tokio_util::io::ReaderStream;
+
+    pub async fn serve(uri: Uri) -> Response {
+        super::serve_static_res(uri, |path| {
+            let path = format!("dist{path}");
+            debug!("Try serve {path}");
+
+            async move {
+                let file = if Path::new(&path).is_file() {
+                    tokio::fs::File::open(&path).await
+                } else {
+                    debug!("Fallback to index.html");
+                    tokio::fs::File::open("dist/index.html").await
+                }
+                .unwrap();
+                StreamBody::new(ReaderStream::new(tokio::io::BufReader::new(file)))
+            }
+        })
+        .await
+    }
+
+    pub async fn init() {
+        tokio::spawn(async {
+            std::process::Command::new("sh")
+                .args(["-c", "npx webpack --watch"])
+                .output()
+                .unwrap();
+        });
+    }
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -40,24 +143,21 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(async move { scheduler.start().await });
     info!("Scheduler started");
 
-    let app = Router::new()
-        .route("/", get(|| async { "" }))
-    calendar_hub::google_calendar::Config::init(format!("{url_prefix}/api/google"))
+    static_res::init().await;
+
+    calendar_hub::google_calendar::Config::init(format!("{url_prefix}/google"))
             .await
             .unwrap();
 
-    let app = Router::new().fallback(static_res::serve).nest("/api", {
-        let router = Router::new().route("/update", get(poll_user));
-        let router = router.nest(
-            "/google",
-            calendar_hub::google_calendar::web_router(),
-        );
-        let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
+    let router = Router::new().fallback(static_res::serve).route("/update", get(poll_user)).route("/user", get(get_user));
+    let router = router.nest(
+        "/google",
+        calendar_hub::google_calendar::web_router(),
+    );
+    let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
 
-        #[cfg(debug_assertions)]
-        let router = router.route("/poll_force", get(poll_dev));
-        router
-    });
+    #[cfg(debug_assertions)]
+    let router = router.route("/poll_force", get(poll_dev));
 
     let session_secret = {
         let mut buffer = std::mem::MaybeUninit::<[u8; 64]>::uninit();
@@ -77,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
         }
         unsafe { buffer.assume_init() }
     };
-    let app = app.layer(Extension(db_pool)).layer(
+    let app = router.layer(Extension(db_pool)).layer(
         SessionLayer::new(MemoryStore::new(), &session_secret)
             .with_secure(url_prefix.starts_with("https"))
             .with_persistence_policy(PersistencePolicy::ChangedOnly),
@@ -125,22 +225,28 @@ async fn poll_dev(Extension(db): Extension<SqlitePool>) {
     }
 }
 
-async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> String {
+async fn get_user(session: ReadableSession) -> Json<bool> {
+    Json(session.get::<UserId>("user_id").is_some())
+}
+
+async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> Json<bool> {
     if let Some(user_id) = session.get::<UserId>("user_id") {
         if let Ok(Some(naver_user)) = NaverUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = naver_user.fetch(db.clone()).await {
                 error!("error - {e:?}");
+                return Json(false);
             }
         }
 
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
                 error!("error - {e:?}");
+                return Json(false);
             }
         }
     }
 
-    "".to_string()
+    return Json(true);
 }
 
 async fn poll(db: SqlitePool) -> anyhow::Result<()> {

@@ -1,12 +1,16 @@
-use std::str::FromStr;
-
 use anyhow::{anyhow, Context};
+use axum::{
+    response::{IntoResponse, Response},
+    Extension, Json, Router,
+};
+use axum_sessions::extractors::ReadableSession;
 #[allow(unused_imports)]
 use chrono::Timelike; // false warning
 use chrono::{Datelike, FixedOffset};
 use futures::StreamExt;
+use hyper::StatusCode;
 use itertools::Itertools;
-use log::info;
+use log::{error, info, debug};
 use reqwest::cookie::{CookieStore, Jar};
 use scraper::Html;
 use sqlx::SqlitePool;
@@ -233,4 +237,77 @@ impl NaverUser {
             Ok(updated_item_count > 0)
         }
     }
+
+    async fn update_session(&self, db: SqlitePool) -> anyhow::Result<()> {
+        sqlx::query!(
+            "UPDATE `naver_user` SET `ses` = ?, `aut` = ? WHERE `user_id` = ?",
+            self.ses,
+            self.aut,
+            self.user_id
+        )
+        .execute(&db)
+        .await
+        .context("Failed to update naver user session data")
+        .map(|_| ())
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct NaverUserDetail {
+    ses: String,
+    aut: String,
+}
+
+impl From<NaverUser> for NaverUserDetail {
+    fn from(value: NaverUser) -> Self {
+        NaverUserDetail {
+            ses: value.ses,
+            aut: value.aut,
+        }
+    }
+}
+
+impl From<(UserId, NaverUserDetail)> for NaverUser {
+    fn from(value: (UserId, NaverUserDetail)) -> Self {
+        Self {
+            user_id: value.0,
+            ses: value.1.ses,
+            aut: value.1.aut,
+        }
+    }
+}
+
+async fn get_info(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> Response {
+    let Some(user_id) = session.get::<UserId>("user_id") else {
+        debug!("Not logged in");
+        return StatusCode::FORBIDDEN.into_response();
+    };
+
+    let naver_user = NaverUser::from_user_id(db, user_id).await.unwrap().unwrap();
+
+    Json(NaverUserDetail::from(naver_user)).into_response()
+}
+
+async fn update_info(
+    session: ReadableSession,
+    Extension(db): Extension<SqlitePool>,
+    Json(data): Json<NaverUserDetail>,
+) -> Response {
+    let Some(user_id) = session.get::<UserId>("user_id") else {
+        debug!("Not logged in");
+        return StatusCode::FORBIDDEN.into_response();
+    };
+
+    if let Err(e) = NaverUser::from((user_id, data)).update_session(db).await {
+        error!("Error occurred while update naver session data - {e:?}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    } else {
+        StatusCode::ACCEPTED.into_response()
+    }
+}
+
+pub fn web_router() -> Router {
+    Router::new()
+        .route("/user", axum::routing::get(get_info))
+        .route("/user", axum::routing::post(update_info))
 }

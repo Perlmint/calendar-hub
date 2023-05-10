@@ -2,4 +2,6 @@
 /node_modules/
 /db*
 /google.json
+/service_account.json
 /allowed-emails
+/dist/
