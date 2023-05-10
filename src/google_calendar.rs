@@ -733,6 +733,16 @@ impl GoogleUser {
             }
         }
 
+        let now = chrono::Utc::now().naive_utc();
+        sqlx::query!(
+            "UPDATE `google_user` SET `last_synced` = ? WHERE `user_id` = ?",
+            now,
+            self.user_id
+        )
+        .execute(db)
+        .await
+        .unwrap();
+
         Ok(())
     }
 }
