@@ -2,6 +2,7 @@ use std::{fmt::Display, ops::Add};
 
 use anyhow::{anyhow, Context};
 use reqwest::cookie::{CookieStore, Jar};
+use serde_with::serde_as;
 
 use crate::{url, CalendarEvent, USER_AGENT};
 
@@ -76,6 +77,7 @@ enum BookingTimeUnitCode {
     Daily,
 }
 
+#[serde_as]
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Booking {
@@ -94,7 +96,10 @@ struct Booking {
     start_date_time: chrono::DateTime<chrono::Utc>,
     end_date_time: chrono::DateTime<chrono::Utc>,
     global_timezone: String,
-    // business_address_json: Address,
+    business_address_json: Address,
+    #[serde(rename = "bizItemAddressJson")]
+    #[serde_as(deserialize_as = "serde_with::DefaultOnError")]
+    business_item_address_json: Option<Address>,
     // #[serde(rename = "bookingOptionJson")]
     // options: Vec<ReservationOption>,
     booking_time_unit_code: BookingTimeUnitCode,
@@ -139,6 +144,21 @@ impl Booking {
         })
     }
 
+    fn location(&self) -> String {
+        let address = self
+            .business_item_address_json
+            .as_ref()
+            .unwrap_or(&self.business_address_json);
+        if let Some(place_name) = &address.place_name {
+            if let Some(detail) = &address.detail {
+                format!("{} {place_name} {detail}", address.road_addr)
+            } else {
+                format!("{} {place_name}", address.road_addr)
+            }
+        } else {
+            address.road_addr.clone()
+        }
+    }
 }
 
 impl TryFrom<BookingWrap> for CalendarEvent {
@@ -147,6 +167,11 @@ impl TryFrom<BookingWrap> for CalendarEvent {
     fn try_from(booking: BookingWrap) -> Result<Self, Self::Error> {
         let id = format!("naver/{}", booking.snapshot_json.booking_id);
         let (date_begin, time_begin, date_end, time_end) = booking.snapshot_json.get_date_time()?;
+        let url = Some(format!(
+            "https://m.booking.naver.com/my/bookings/{}",
+            booking.snapshot_json.booking_id
+        ));
+        let location = Some(booking.snapshot_json.location());
 
         Ok(CalendarEvent {
             id,
@@ -157,6 +182,8 @@ impl TryFrom<BookingWrap> for CalendarEvent {
             time_begin,
             date_end,
             time_end,
+            url,
+            location,
         })
     }
 }
@@ -170,7 +197,9 @@ struct ReservationOption {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Address {
-    // road_addr: String,
+    road_addr: String,
+    place_name: Option<String>,
+    detail: Option<String>,
 }
 
 pub(super) async fn fetch(jar: &Jar) -> anyhow::Result<Vec<CalendarEvent>> {
@@ -240,21 +269,6 @@ pub(super) async fn fetch(jar: &Jar) -> anyhow::Result<Vec<CalendarEvent>> {
         .booking
         .bookings
         .into_iter()
-        .map(|booking| {
-            let id = format!("naver/{}", booking.snapshot_json.booking_id);
-            let (date_begin, time_begin, date_end, time_end) =
-                booking.snapshot_json.get_date_time()?;
-
-            Ok(CalendarEvent {
-                id,
-                title: booking.snapshot_json.service_name,
-                detail: booking.snapshot_json.business_item_name,
-                invalid: booking.booking_status_code == ReservationStatusCode::Cancelled,
-                date_begin,
-                time_begin,
-                date_end,
-                time_end,
-            })
-        })
+        .map(TryFrom::try_from)
         .collect()
 }

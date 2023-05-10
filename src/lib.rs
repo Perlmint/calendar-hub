@@ -86,6 +86,8 @@ pub struct CalendarEvent {
     pub time_begin: Option<chrono::NaiveTime>,
     pub date_end: Option<chrono::NaiveDate>,
     pub time_end: Option<chrono::NaiveTime>,
+    pub location: Option<String>,
+    pub url: Option<String>,
 }
 
 impl CalendarEvent {
@@ -101,7 +103,8 @@ impl CalendarEvent {
             `title`, `detail`,
             `date_begin`, `time_begin`,
             `date_end`, `time_end`,
-            `invalid`, `updated_at`
+            `invalid`, `url`, `location`,
+            `updated_at`
         ) "#,
         );
 
@@ -119,6 +122,8 @@ impl CalendarEvent {
                     .push_bind(event.date_end)
                     .push_bind(event.time_end)
                     .push_bind(event.invalid)
+                    .push_bind(&event.url)
+                    .push_bind(&event.location)
                     .push_bind(now);
             })
             .push(
@@ -126,7 +131,8 @@ impl CalendarEvent {
                 `title`=`excluded`.`title`, `detail`=`excluded`.`detail`,
                 `date_begin`=`excluded`.`date_begin`, `time_begin`=`excluded`.`time_begin`,
                 `date_end`=`excluded`.`date_end`, `time_end`=`excluded`.`time_end`,
-                `invalid`=`excluded`.`invalid`, `updated_at`="#,
+                `invalid`=`excluded`.`invalid`, `url`=`excluded`.`url`, `location`=`excluded`.`location`,
+                `updated_at`="#,
             )
             .push_bind(now)
             .push(
@@ -134,7 +140,8 @@ impl CalendarEvent {
                 `reservation`.`title` IS NOT `excluded`.`title` OR `reservation`.`detail` IS NOT `excluded`.`detail` OR
                 `reservation`.`date_begin` IS NOT `excluded`.`date_begin` OR `reservation`.`time_begin` IS NOT `excluded`.`time_begin` OR
                 `reservation`.`date_end` IS NOT `excluded`.`date_end` OR `reservation`.`time_end` IS NOT `excluded`.`time_end` OR
-                `reservation`.`invalid` IS NOT `excluded`.`invalid` OR `reservation`.`url` IS NOT `excluded`.`url`"#,
+                `reservation`.`invalid` IS NOT `excluded`.`invalid` OR `reservation`.`url` IS NOT `excluded`.`url` OR
+                `reservation`.`location` IS NOT `excluded`.`location`"#,
             )
             .build()
             .execute(db)

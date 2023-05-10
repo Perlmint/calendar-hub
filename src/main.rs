@@ -270,7 +270,7 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
         };
 
         let duration = chrono::Utc::now() - last_synced;
-        if duration < chrono::Duration::minutes(5) {
+        if duration < chrono::Duration::minutes(1) {
             info!("Recently updated");
             return Json(false);
         }

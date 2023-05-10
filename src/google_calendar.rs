@@ -79,7 +79,12 @@ impl From<CalendarEvent> for Event {
     fn from(event: CalendarEvent) -> Event {
         let start = (event.date_begin, event.time_begin).into_google();
         Event {
-            description: Some(event.detail),
+            description: Some(
+                event
+                    .url
+                    .map(|url| format!("{}\n{}", event.detail, url))
+                    .unwrap_or(event.detail),
+            ),
             end: Some(
                 event
                     .date_end
@@ -88,6 +93,7 @@ impl From<CalendarEvent> for Event {
             ),
             start: Some(start),
             summary: Some(event.title),
+            location: event.location,
             ..Default::default()
         }
     }
@@ -650,7 +656,9 @@ impl GoogleUser {
                 `time_begin` as `time_begin: chrono::NaiveTime`,
                 `date_end` as `date_end: chrono::NaiveDate`,
                 `time_end` as `time_end: chrono::NaiveTime`,
-                `invalid`
+                `invalid`,
+                `location`,
+                `url`
             FROM `reservation`
             WHERE `user_id` = ? AND `updated_at` > ?"#,
             self.user_id,
