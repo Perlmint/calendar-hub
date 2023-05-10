@@ -1,3 +1,16 @@
+FROM node:alpine as web_builder
+
+WORKDIR /src
+ENV PRODUCTION 1
+ADD \
+    package.json package-lock.json \
+    tsconfig.json webpack.config.js \
+    ./
+
+ADD src ./src
+
+RUN npm i && npx webpack build
+
 FROM rust:1.69-alpine as builder
 
 RUN apk add --no-cache \
@@ -10,15 +23,18 @@ RUN cargo install sqlx-cli --no-default-features --features sqlite,sqlx/runtime-
 
 WORKDIR /src
 
-ADD Cargo.toml ./
+ADD \
+    Cargo.toml \
+    .env \
+    ./
 ADD src/ ./src
 ADD migrations/ ./migrations
-ADD .env ./
 
 ENV PKG_CONFIG_ALL_STATIC=1
 RUN sqlx database create && sqlx migrate run
 
-RUN cargo build --release
+COPY --from=web_builder /src/dist ./dist
+RUN cargo build --release --features embed_web
 
 FROM scratch
 
