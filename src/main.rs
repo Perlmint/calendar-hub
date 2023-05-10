@@ -4,13 +4,17 @@ use axum::{
     body::{Bytes, StreamBody},
     http::HeaderValue,
     response::{IntoResponse, Response},
-    routing::get,
-    BoxError, Extension, Router, Json,
+    routing::{get, post},
+    BoxError, Extension, Json, Router,
 };
 use axum_sessions::{
     async_session::MemoryStore, extractors::ReadableSession, PersistencePolicy, SessionLayer,
 };
-use calendar_hub::{google_calendar::GoogleUser, naver_reservation::NaverUser, UserId};
+use calendar_hub::{
+    google_calendar::{self, GoogleUser},
+    naver_reservation::NaverUser,
+    UserId,
+};
 use futures::{Future, TryStream};
 use hyper::{header, Uri};
 use log::{debug, error, info};
@@ -146,14 +150,14 @@ async fn main() -> anyhow::Result<()> {
     static_res::init().await;
 
     calendar_hub::google_calendar::Config::init(format!("{url_prefix}/google"))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
-    let router = Router::new().fallback(static_res::serve).route("/update", get(poll_user)).route("/user", get(get_user));
-    let router = router.nest(
-        "/google",
-        calendar_hub::google_calendar::web_router(),
-    );
+    let router = Router::new()
+        .fallback(static_res::serve)
+        .route("/sync", post(poll_user))
+        .route("/user", get(get_user));
+    let router = router.nest("/google", calendar_hub::google_calendar::web_router());
     let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
 
     #[cfg(debug_assertions)]
@@ -225,12 +229,42 @@ async fn poll_dev(Extension(db): Extension<SqlitePool>) {
     }
 }
 
-async fn get_user(session: ReadableSession) -> Json<bool> {
-    Json(session.get::<UserId>("user_id").is_some())
+#[derive(serde::Serialize)]
+#[serde(tag = "type")]
+enum ClientUserData {
+    User {
+        last_synced: chrono::DateTime<chrono::Utc>,
+    },
+    None,
+}
+
+async fn get_user(
+    session: ReadableSession,
+    Extension(db): Extension<SqlitePool>,
+) -> Json<ClientUserData> {
+    let ret = match session.get::<UserId>("user_id") {
+        Some(user_id) => {
+            let last_synced = google_calendar::get_last_synced(db, user_id).await.unwrap();
+            ClientUserData::User { last_synced }
+        }
+        None => ClientUserData::None,
+    };
+
+    Json(ret)
 }
 
 async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> Json<bool> {
     if let Some(user_id) = session.get::<UserId>("user_id") {
+        let Ok(last_synced) = google_calendar::get_last_synced(db.clone(), user_id).await else {
+            return Json(false);
+        };
+
+        let duration = chrono::Utc::now() - last_synced;
+        if duration < chrono::Duration::minutes(5) {
+            info!("Recently updated");
+            return Json(false);
+        }
+
         if let Ok(Some(naver_user)) = NaverUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = naver_user.fetch(db.clone()).await {
                 error!("error - {e:?}");

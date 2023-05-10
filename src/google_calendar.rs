@@ -669,93 +669,91 @@ impl GoogleUser {
             .build()
             .await?;
 
-        if reservations.is_empty() {
-            return Ok(());
-        }
+        if !reservations.is_empty() {
+            let hub = CalendarHub::new(
+                hyper::Client::builder().build(
+                    hyper_rustls::HttpsConnectorBuilder::new()
+                        .with_native_roots()
+                        .https_or_http()
+                        .enable_http1()
+                        .enable_http2()
+                        .build(),
+                ),
+                auth,
+            );
 
-        let hub = CalendarHub::new(
-            hyper::Client::builder().build(
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_native_roots()
-                    .https_or_http()
-                    .enable_http1()
-                    .enable_http2()
-                    .build(),
-            ),
-            auth,
-        );
+            let google_events = sqlx::QueryBuilder::new(
+                "SELECT `event_id`, `reservation_id` FROM `google_event` WHERE `user_id` = ",
+            )
+            .push_bind(self.user_id)
+            .push("AND `reservation_id` in ")
+            .push_tuples(reservations.keys(), |mut builder, item| {
+                builder.push_bind(item);
+            })
+            .build()
+            .fetch_all(db)
+            .await
+            .context("Failed to get saved google events")?;
 
-        let google_events = sqlx::QueryBuilder::new(
-            "SELECT `event_id`, `reservation_id` FROM `google_event` WHERE `user_id` = ",
-        )
-        .push_bind(self.user_id)
-        .push("AND `reservation_id` in ")
-        .push_tuples(reservations.keys(), |mut builder, item| {
-            builder.push_bind(item);
-        })
-        .build()
-        .fetch_all(db)
-        .await
-        .context("Failed to get saved google events")?;
-
-        for google_event in google_events {
-            let event_id: String = google_event.get_unchecked(0);
-            let reservation_id: String = google_event.get_unchecked(1);
-            if let Some(reservation) = reservations.remove(&reservation_id) {
-                if reservation.invalid {
-                    if let Err(_e) = hub
+            for google_event in google_events {
+                let event_id: String = google_event.get_unchecked(0);
+                let reservation_id: String = google_event.get_unchecked(1);
+                if let Some(reservation) = reservations.remove(&reservation_id) {
+                    if reservation.invalid {
+                        if let Err(_e) = hub
+                            .events()
+                            .delete(&self.calendar_id, &event_id)
+                            .doit()
+                            .await
+                        {
+                            // TODO: handle error
+                        }
+                    } else if let Err(_e) = hub
                         .events()
-                        .delete(&self.calendar_id, &event_id)
+                        .patch(reservation.into(), &self.calendar_id, &event_id)
                         .doit()
                         .await
                     {
                         // TODO: handle error
                     }
-                } else if let Err(_e) = hub
-                    .events()
-                    .patch(reservation.into(), &self.calendar_id, &event_id)
-                    .doit()
-                    .await
-                {
-                    // TODO: handle error
                 }
             }
-        }
 
-        if !reservations.is_empty() {
-            let mut builder = sqlx::QueryBuilder::new(
-                "INSERT INTO `google_event` (`event_id`, `user_id`, `reservation_id`)",
-            );
-            let mut new_events = Vec::new();
-            for (_, reservation) in reservations.into_iter() {
-                if reservation.invalid {
-                    continue;
-                }
-
-                let reservation_id = reservation.id.clone();
-
-                match hub
-                    .events()
-                    .insert(reservation.into(), &self.calendar_id)
-                    .doit()
-                    .await
-                {
-                    Ok((_, e)) => {
-                        new_events.push((e.id.unwrap(), reservation_id));
+            if !reservations.is_empty() {
+                let mut builder = sqlx::QueryBuilder::new(
+                    "INSERT INTO `google_event` (`event_id`, `user_id`, `reservation_id`)",
+                );
+                let mut new_events = Vec::new();
+                for (_, reservation) in reservations.into_iter() {
+                    if reservation.invalid {
+                        continue;
                     }
-                    Err(e) => error!("Failed to insert event - {e:?}"),
-                }
-            }
 
-            if !new_events.is_empty() {
-                builder.push_values(new_events, |mut b, r| {
-                    b.push_bind(r.0).push_bind(self.user_id).push_bind(r.1);
-                });
-                builder
-                    .build()
-                    .execute(db)
-                    .await
-                    .context("Failed to insert newly created events")?;
+                    let reservation_id = reservation.id.clone();
+
+                    match hub
+                        .events()
+                        .insert(reservation.into(), &self.calendar_id)
+                        .doit()
+                        .await
+                    {
+                        Ok((_, e)) => {
+                            new_events.push((e.id.unwrap(), reservation_id));
+                        }
+                        Err(e) => error!("Failed to insert event - {e:?}"),
+                    }
+                }
+
+                if !new_events.is_empty() {
+                    builder.push_values(new_events, |mut b, r| {
+                        b.push_bind(r.0).push_bind(self.user_id).push_bind(r.1);
+                    });
+                    builder
+                        .build()
+                        .execute(db)
+                        .await
+                        .context("Failed to insert newly created events")?;
+                }
             }
         }
 
@@ -771,4 +769,18 @@ impl GoogleUser {
 
         Ok(())
     }
+}
+
+pub async fn get_last_synced(
+    db: SqlitePool,
+    user_id: UserId,
+) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
+    sqlx::query!(
+        "SELECT `last_synced` FROM `google_user` WHERE `user_id` = ?",
+        user_id
+    )
+    .fetch_one(&db)
+    .await
+    .context("Failed to get last_synced for ({user_id:?}) from DB")
+    .map(|row| chrono::DateTime::from_utc(row.last_synced, chrono::Utc))
 }

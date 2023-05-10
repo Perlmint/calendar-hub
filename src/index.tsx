@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { createRoutesFromElements, Outlet, Route, RouterProvider, useRouteLoaderData } from "react-router";
-import { createBrowserRouter, NavLink } from "react-router-dom";
+import { createBrowserRouter, Form, NavLink, useFormAction } from "react-router-dom";
 import NaverReservation, { loadData as naverReservationLoadData, updateAction as naverReservationUpdateAction } from './naver_reservation';
 import '@picocss/pico/css/pico.classless.min.css'
 import { AsyncReturnType } from "./utils";
@@ -23,8 +23,17 @@ function Layout() {
 }
 
 function Index() {
-    let logged_in = useRouteLoaderData("root") as AsyncReturnType<typeof getUser>;
-    return logged_in ? <a href="/google/logout"><button>logout</button></a> : <a href="/google/login"><button>login</button></a>;
+    const logged_in = useRouteLoaderData("user") as AsyncReturnType<typeof getUser>;
+    if (logged_in !== null) {
+        return <>
+            <Form method="post" action="/">
+                <button className="primary" type="submit">sync (last: {logged_in.last_synced.toLocaleString()})</button>
+            </Form>
+            <a href="/google/logout"><button>logout</button></a>
+        </>
+    } else {
+        return <a href="/google/login"><button>login</button></a>;
+    }
 }
 
 async function getUser() {
@@ -34,7 +43,16 @@ async function getUser() {
 
     if (resp.ok) {
         const parsed = await resp.json();
-        return parsed as boolean;
+        switch (parsed.type as "None" | "User") {
+            case "None":
+                return null;
+            case "User":
+                return {
+                    last_synced: new Date(parsed.last_synced),
+                };
+            default:
+                return null;
+        }
     } else {
         return null;
     }
@@ -43,7 +61,14 @@ async function getUser() {
 const router = createBrowserRouter(
     createRoutesFromElements(
         <>
-            <Route path="/" id="root" loader={getUser} element={<Layout />}>
+            <Route path="/" id="user" loader={getUser} action={async () => {
+                const resp = await fetch('/sync', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                });
+
+                return (await resp.json());
+            }} element={<Layout />}>
                 <Route path="" element={<Index />} />
                 <Route
                     path="naver"
