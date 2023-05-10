@@ -396,26 +396,42 @@ async fn begin_login(
             let id_token = auth.id_token(CALENDAR_SCOPE).await.unwrap().unwrap();
             let mut claims: BTreeMap<String, serde_json::Value> = id_token
                 .verify_with_store(&config.google_key_store)
+                .context("jwt verification failed")
                 .unwrap();
             (
-                claims.remove("sub").unwrap(),
-                claims.remove("email").unwrap(),
+                claims
+                    .remove("sub")
+                    .context("sub is not in received claims")
+                    .unwrap(),
+                claims
+                    .remove("email")
+                    .context("email is not in received claims")
+                    .unwrap(),
             )
         };
+
+        let email = email
+            .as_str()
+            .context("received email in claims is not string")
+            .unwrap();
 
         if config
             .allowed_emails
             .as_ref()
             .read()
             .await
-            .get(email.as_str().unwrap())
+            .get(email)
             .is_none()
         {
             user_id_sender.send(None).unwrap();
             return;
         }
 
-        let subject = subject.as_str().unwrap();
+        info!("Login succeed {email}");
+        let subject = subject
+            .as_str()
+            .context("received subject in claims is not string")
+            .unwrap();
 
         let user_info = sqlx::query!(
             "SELECT `user_id` as `user_id:UserId`, `calendar_id`, `acl_id` FROM `google_user` WHERE `subject` = ?",
@@ -423,6 +439,7 @@ async fn begin_login(
         )
         .fetch_optional(&db)
         .await
+        .context("Failed to query logged in user")
         .unwrap()
         .map(|record| (record.user_id, record.calendar_id, record.acl_id));
 
@@ -442,19 +459,16 @@ async fn begin_login(
         let (user_id, calendar_id, acl_id) = if let Some((user_id, calendar_id, acl_id)) = user_info
         {
             if let Err(e) = calendar_hub.calendars().get(&calendar_id).doit().await {
+                info!("Saved calendar_id is invalid - {e:?}");
                 (user_id, None, None)
             } else if let Some(acl_id) = acl_id {
-                let acl_id = if calendar_hub
-                    .acl()
-                    .get(&calendar_id, &acl_id)
-                    .doit()
-                    .await
-                    .is_ok()
-                {
-                    Some(acl_id)
-                } else {
-                    None
-                };
+                let acl_id =
+                    if let Err(e) = calendar_hub.acl().get(&calendar_id, &acl_id).doit().await {
+                        info!("Saved acl_id is invalid - {e:?}");
+                        None
+                    } else {
+                        Some(acl_id)
+                    };
                 (user_id, Some(calendar_id), acl_id)
             } else {
                 (user_id, Some(calendar_id), None)
@@ -474,44 +488,50 @@ async fn begin_login(
 
         let calendar_id = match calendar_id {
             Some(calendar_id) => calendar_id,
-            None => calendar_hub
-                .calendars()
-                .insert(Calendar {
-                    summary: Some("Calendar hub".to_string()),
-                    ..Default::default()
-                })
-                .doit()
-                .await
-                .context("Failed to create calendar")
-                .unwrap()
-                .1
-                .id
-                .unwrap(),
+            None => {
+                info!("Create new calendar");
+                calendar_hub
+                    .calendars()
+                    .insert(Calendar {
+                        summary: Some("Calendar hub".to_string()),
+                        ..Default::default()
+                    })
+                    .doit()
+                    .await
+                    .context("Failed to create calendar")
+                    .unwrap()
+                    .1
+                    .id
+                    .unwrap()
+            }
         };
 
         let acl_id = match acl_id {
             Some(id) => id,
-            None => calendar_hub
-                .acl()
-                .insert(
-                    AclRule {
-                        etag: None,
-                        id: None,
-                        kind: None,
-                        role: Some("writer".to_string()),
-                        scope: Some(AclRuleScope {
-                            type_: Some("user".to_string()),
-                            value: Some(config.service_account.client_email.clone()),
-                        }),
-                    },
-                    &calendar_id,
-                )
-                .doit()
-                .await
-                .unwrap()
-                .1
-                .id
-                .expect("Id of AclRule in Response should be set"),
+            None => {
+                info!("Share calendar {calendar_id} to service account");
+                calendar_hub
+                    .acl()
+                    .insert(
+                        AclRule {
+                            etag: None,
+                            id: None,
+                            kind: None,
+                            role: Some("writer".to_string()),
+                            scope: Some(AclRuleScope {
+                                type_: Some("user".to_string()),
+                                value: Some(config.service_account.client_email.clone()),
+                            }),
+                        },
+                        &calendar_id,
+                    )
+                    .doit()
+                    .await
+                    .unwrap()
+                    .1
+                    .id
+                    .expect("Id of AclRule in Response should be set")
+            }
         };
 
         let minimum_date_time =
