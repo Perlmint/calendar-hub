@@ -3,12 +3,14 @@ use std::{collections::BTreeSet, ffi::OsStr, path::Path, sync::Arc};
 use axum::{
     body::{Bytes, StreamBody},
     http::HeaderValue,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     BoxError, Extension, Json, Router,
 };
 use axum_sessions::{
-    async_session::MemoryStore, extractors::ReadableSession, PersistencePolicy, SessionLayer,
+    async_session::MemoryStore,
+    extractors::{ReadableSession, WritableSession},
+    PersistencePolicy, SessionLayer,
 };
 use calendar_hub::{
     google_calendar::{self, GoogleUser},
@@ -156,7 +158,9 @@ async fn main() -> anyhow::Result<()> {
     let router = Router::new()
         .fallback(static_res::serve)
         .route("/sync", post(poll_user))
-        .route("/user", get(get_user));
+        .route("/user", get(get_user))
+        .route("/login", get(|| async { Redirect::to("/google/login") }))
+        .route("/logout", get(logout));
     let router = router.nest("/google", calendar_hub::google_calendar::web_router());
     let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
 
@@ -251,6 +255,12 @@ async fn get_user(
     };
 
     Json(ret)
+}
+
+async fn logout(mut session: WritableSession) -> Response {
+    session.destroy();
+
+    Redirect::to("/").into_response()
 }
 
 async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> Json<bool> {

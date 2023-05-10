@@ -29,10 +29,10 @@ function Index() {
             <Form method="post" action="/">
                 <button className="primary" type="submit">sync (last: {logged_in.last_synced.toLocaleString()})</button>
             </Form>
-            <a href="/google/logout"><button>logout</button></a>
+            <a href="/logout"><button>logout</button></a>
         </>
     } else {
-        return <a href="/google/login"><button>login</button></a>;
+        return <a href="/login"><button>login</button></a>;
     }
 }
 
