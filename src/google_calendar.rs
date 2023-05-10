@@ -95,6 +95,7 @@ impl From<CalendarEvent> for Event {
 
 const CALENDAR_SCOPE: &[&str] = &[
     "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events",
     "openid",
     "email",
@@ -410,6 +411,11 @@ async fn begin_login(
             )
         };
 
+        auth.token(CALENDAR_SCOPE)
+            .await
+            .context("Failed to get access token")
+            .unwrap();
+
         let email = email
             .as_str()
             .context("received email in claims is not string")
@@ -459,7 +465,7 @@ async fn begin_login(
         let (user_id, calendar_id, acl_id) = if let Some((user_id, calendar_id, acl_id)) = user_info
         {
             if let Err(e) = calendar_hub.calendars().get(&calendar_id).doit().await {
-                info!("Saved calendar_id is invalid - {e:?}");
+                info!("Saved calendar_id({calendar_id}) is invalid - {e:?}");
                 (user_id, None, None)
             } else if let Some(acl_id) = acl_id {
                 let acl_id =
