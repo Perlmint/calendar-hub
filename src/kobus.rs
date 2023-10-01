@@ -140,6 +140,12 @@ impl crate::UserImpl for KobusUser {
             .build()?;
 
         let res = client.execute(req).await?;
+
+        if !res.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "Failed to fetch data. Session could be expired"
+            ));
+        }
         let res = res.bytes().await?;
 
         let html = std::str::from_utf8(&res)?;
@@ -153,8 +159,11 @@ impl crate::UserImpl for KobusUser {
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let updated_item_count =
-            CalendarEvent::upsert_events_to_db(self.user_id, &db, events.iter()).await?;
+        let updated_item_count = if events.is_empty() {
+            0
+        } else {
+            CalendarEvent::upsert_events_to_db(self.user_id, &db, events.iter()).await?
+        };
         let updated_item_count = updated_item_count
             + CalendarEvent::cancel_not_expired_and_not_in(
                 self.user_id,
