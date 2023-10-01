@@ -26,14 +26,14 @@ notify = "5.1.0"
 once_cell = "1.17.0"
 paste = "1.0.13"
 regex = "1.7.3"
-reqwest = { version = "0.11.13", features = ["cookies", "serde_json", "json", "rustls-tls-native-roots"], default_features = false }
+reqwest = { version = "0.11.13", features = ["cookies", "serde_json", "json", "native-tls"], default_features = false }
 rsa = "0.9.0"
 scraper = "0.16.0"
 serde = "1.0.160"
 serde_json = "1.0.96"
 serde_with = "3.0.0"
 sha2 = { version = "0.10.6", features = ["oid"] }
-sqlx = { version = "0.6.2", features = ["runtime-tokio-rustls", "sqlite", "chrono"] }
+sqlx = { version = "0.6.2", features = ["runtime-tokio-native-tls", "sqlite", "chrono"] }
 tokio = { version = "1.24.1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
 tokio-cron-scheduler = "0.9.1"
 tokio-stream = "0.1.12"

@@ -9,7 +9,9 @@ use log::{debug, error, info};
 use sqlx::SqlitePool;
 
 pub mod catch_table;
+pub mod cgv;
 pub mod google_calendar;
+pub mod kobus;
 pub mod naver_reservation;
 
 #[repr(transparent)]
@@ -155,6 +157,36 @@ impl CalendarEvent {
             .await?;
 
         Ok(result.rows_affected())
+    }
+
+    pub(crate) async fn cancel_not_expired_and_not_in(
+        user_id: UserId,
+        db: &SqlitePool,
+        event_ids: impl Iterator<Item = &str>,
+    ) -> anyhow::Result<u64> {
+        let date_time = chrono::Utc::now().naive_utc();
+        let date = date_time.date();
+        let time = date_time.time();
+        let mut builder = sqlx::query_builder::QueryBuilder::new(
+            "UPDATE `reservation` SET `invalid` = TRUE WHERE `user_id` = ",
+        );
+        builder
+            .push_bind(&user_id)
+            .push(" AND (`date_begin` < ")
+            .push_bind(&date)
+            .push("OR (`date_begin` = ")
+            .push_bind(&date)
+            .push(" AND `time_begin` <")
+            .push_bind(&time)
+            .push(")) AND `id` NOT IN (");
+        let mut b = builder.separated(",");
+        for i in event_ids {
+            b.push_bind(i);
+        }
+        let query = builder.push(")").build();
+        let res = query.execute(db).await?;
+
+        Ok(res.rows_affected())
     }
 
     #[allow(dead_code)]

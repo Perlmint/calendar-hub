@@ -17,6 +17,10 @@ import NaverReservation, {
   loadData as naverReservationLoadData,
   updateAction as naverReservationUpdateAction,
 } from "./naver_reservation";
+import Kobus, {
+  loadData as kobusLoadData,
+  updateAction as kobusUpdateAction,
+} from "./kobus";
 import "@picocss/pico/css/pico.classless.min.css";
 import { AsyncReturnType } from "./utils";
 
@@ -34,6 +38,11 @@ function Layout() {
         <ul>
           <li>
             <NavLink to="/naver">Naver</NavLink>
+          </li>
+        </ul>
+        <ul>
+          <li>
+            <NavLink to="/kobus">kobus</NavLink>
           </li>
         </ul>
       </nav>
@@ -116,6 +125,9 @@ const router = createBrowserRouter(
           loader={naverReservationLoadData}
         >
           <Route path="user" action={naverReservationUpdateAction} />
+        </Route>
+        <Route path="kobus" element={<Kobus />} loader={kobusLoadData}>
+          <Route path="user" action={kobusUpdateAction} />
         </Route>
       </Route>
     </>

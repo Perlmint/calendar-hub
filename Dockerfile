@@ -11,15 +11,17 @@ ADD src ./src
 
 RUN npm i && npx webpack build
 
-FROM rust:1.69-alpine as builder
+FROM rust:1.70-alpine as builder
 
 RUN apk add --no-cache \
         musl-dev \
-        ca-certificates && \
+        ca-certificates \
+        openssl-dev \
+        openssl-libs-static && \
     update-ca-certificates
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
-RUN cargo install sqlx-cli --no-default-features --features sqlite,sqlx/runtime-tokio-rustls 
+RUN cargo install sqlx-cli --no-default-features --features sqlite,sqlx/runtime-tokio-rustls
 
 WORKDIR /src
 
@@ -30,7 +32,10 @@ ADD \
 ADD src/ ./src
 ADD migrations/ ./migrations
 
-ENV PKG_CONFIG_ALL_STATIC=1
+ENV PKG_CONFIG_ALL_STATIC=1 \
+    OPENSSL_STATIC=1 \
+    OPENSSL_LIB_DIR=/usr/lib/ \
+    OPENSSL_INCLUDE_DIR=/usr/include/
 RUN sqlx database create && sqlx migrate run
 
 COPY --from=web_builder /src/dist ./dist
