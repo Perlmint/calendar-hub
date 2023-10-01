@@ -24,6 +24,7 @@ export async function updateAction({ request }: ActionFunctionArgs) {
         headers: {
             'Content-Type': 'application/json'
         },
+        method: "POST",
         body: formDataToJsonString(formData)
     });
 }
