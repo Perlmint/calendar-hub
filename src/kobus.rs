@@ -94,7 +94,7 @@ fn parse_ticket(element: ElementRef<'_>, canceled: bool) -> anyhow::Result<Calen
 
     Ok(CalendarEvent {
         id: format!("kobus_{reservation_number}"),
-        title: format!("{arrive}발 {departure}행 고속버스"),
+        title: format!("{departure}발 {arrive}행 고속버스"),
         detail: "".to_string(),
         invalid: canceled,
         date_begin: begin_date_time.date(),
