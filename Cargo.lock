@@ -379,6 +379,7 @@ dependencies = [
  "mime_guess",
  "notify",
  "once_cell",
+ "paste",
  "regex",
  "reqwest",
  "rsa",

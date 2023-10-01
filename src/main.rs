@@ -15,7 +15,7 @@ use axum_sessions::{
 use calendar_hub::{
     google_calendar::{self, GoogleUser},
     naver_reservation::NaverUser,
-    UserId,
+    UserId, UserImpl,
 };
 use futures::{Future, TryStream};
 use hyper::{header, Uri};
