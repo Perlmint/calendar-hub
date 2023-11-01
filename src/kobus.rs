@@ -12,6 +12,7 @@ use anyhow::Context;
 use axum::{async_trait, Router};
 use chrono::LocalResult;
 use futures::StreamExt;
+use hyper::StatusCode;
 use itertools::Itertools;
 use log::info;
 use reqwest::cookie::CookieStore;
@@ -129,6 +130,8 @@ impl KobusUser {
 #[async_trait]
 impl crate::UserImpl for KobusUser {
     type Detail = KobusUserDetail;
+    const PING_INTERVAL: Option<std::time::Duration> =
+        Some(std::time::Duration::from_secs(29 * 60));
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let jar = self.to_cookie_jar();
@@ -141,7 +144,7 @@ impl crate::UserImpl for KobusUser {
 
         let res = client.execute(req).await?;
 
-        if !res.status().is_success() {
+        if res.status() != StatusCode::OK {
             return Err(anyhow::anyhow!(
                 "Failed to fetch data. Session could be expired"
             ));
@@ -168,6 +171,7 @@ impl crate::UserImpl for KobusUser {
             + CalendarEvent::cancel_not_expired_and_not_in(
                 self.user_id,
                 &db,
+                "kobus_",
                 events.iter().map(|event| event.id.as_str()),
             )
             .await?;
@@ -198,6 +202,26 @@ impl crate::UserImpl for KobusUser {
         .await
         .context("Failed to update kobus user session data")
         .map(|_| ())
+    }
+
+    async fn ping(&self) -> anyhow::Result<()> {
+        let jar = self.to_cookie_jar();
+        let planned_url = url!("https://kobus.co.kr/mrs/mrscfm.do");
+        let client = reqwest::Client::new();
+        let req = client
+            .post(planned_url.as_ref())
+            .header(reqwest::header::COOKIE, jar.cookies(planned_url).unwrap())
+            .build()?;
+
+        let res = client.execute(req).await?;
+
+        if res.status() != StatusCode::OK {
+            return Err(anyhow::anyhow!(
+                "Failed to fetch data. Session could be expired"
+            ));
+        }
+
+        Ok(())
     }
 }
 

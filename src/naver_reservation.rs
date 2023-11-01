@@ -37,6 +37,8 @@ impl NaverUser {
 impl crate::UserImpl for NaverUser {
     type Detail = NaverUserDetail;
 
+    const PING_INTERVAL: Option<std::time::Duration> = None;
+
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let jar = self.to_cookie_jar();
 

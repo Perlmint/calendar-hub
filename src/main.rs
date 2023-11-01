@@ -120,6 +120,10 @@ mod static_res {
     }
 }
 
+async fn ping_user<U: UserImpl>(user: anyhow::Result<U>) -> anyhow::Result<()> {
+    user?.ping().await
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -139,13 +143,35 @@ async fn main() -> anyhow::Result<()> {
                 let db = db.clone();
                 Box::pin(async move {
                     if let Err(e) = poll(db).await {
-                        error!("Failed to poll naver reservation - {}", e);
+                        error!("Failed to poll reservation - {}", e);
                     }
                 })
             }
         })?)
         .await
         .unwrap();
+
+    if let Some(duration) = KobusUser::PING_INTERVAL {
+        scheduler
+            .add(Job::new_repeated_async(duration, {
+                let db = db_pool.clone();
+                move |_, _| {
+                    let db = db.clone();
+                    Box::pin(async move {
+                        let mut users = KobusUser::all(&db);
+                        while let Some(user) = users.next().await {
+                            if let Err(e) = ping_user(user).await {
+                                error!("Failed to ping - {}", e);
+                            } else {
+                                info!("Success ping for kobus");
+                            }
+                        }
+                    })
+                }
+            })?)
+            .await
+            .unwrap();
+    }
 
     tokio::spawn(async move { scheduler.start().await });
     info!("Scheduler started");

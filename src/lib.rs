@@ -162,6 +162,7 @@ impl CalendarEvent {
     pub(crate) async fn cancel_not_expired_and_not_in(
         user_id: UserId,
         db: &SqlitePool,
+        prefix: &str,
         event_ids: impl Iterator<Item = &str>,
     ) -> anyhow::Result<u64> {
         let date_time = chrono::Utc::now().naive_utc();
@@ -172,11 +173,13 @@ impl CalendarEvent {
         );
         builder
             .push_bind(&user_id)
-            .push(" AND (`date_begin` < ")
+            .push(format!(" AND `id` LIKE \"{prefix}%\""))
+            .push(" AND `invalid` == FALSE")
+            .push(" AND (`date_begin` > ")
             .push_bind(&date)
             .push("OR (`date_begin` = ")
             .push_bind(&date)
-            .push(" AND `time_begin` <")
+            .push(" AND `time_begin` >")
             .push_bind(&time)
             .push(")) AND `id` NOT IN (");
         let mut b = builder.separated(",");
@@ -341,10 +344,14 @@ pub trait UserImpl: Sized + From<(UserId, Self::Detail)> + Send + Sync + 'static
         + Send
         + Sync
         + 'static;
+    const PING_INTERVAL: Option<std::time::Duration>;
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool>;
     async fn from_user_id(db: SqlitePool, user_id: UserId) -> anyhow::Result<Option<Self>>;
     async fn update_session(&self, db: SqlitePool) -> anyhow::Result<()>;
+    async fn ping(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 async fn get_info<U: User>(
