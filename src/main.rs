@@ -13,6 +13,7 @@ use axum_sessions::{
     PersistencePolicy, SessionLayer,
 };
 use calendar_hub::{
+    catch_table::CatchTableUser,
     google_calendar::{self, GoogleUser},
     kobus::KobusUser,
     naver_reservation::NaverUser,
@@ -186,7 +187,17 @@ async fn main() -> anyhow::Result<()> {
         .fallback(static_res::serve)
         .route("/sync", post(poll_user))
         .route("/user", get(get_user))
-        .route("/login", get(|| async { Redirect::to("/google/login") }))
+        .route(
+            "/login",
+            get(|mut session: WritableSession| async move {
+                if cfg!(not(feature = "crawl_test")) {
+                    Redirect::to("/google/login")
+                } else {
+                    session.insert("user_id", 0).unwrap();
+                    Redirect::to("/")
+                }
+            }),
+        )
         .route("/logout", get(logout));
     let router = router.nest("/google", calendar_hub::google_calendar::web_router());
     let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
@@ -277,6 +288,9 @@ async fn get_user(
 ) -> Json<ClientUserData> {
     let ret = match session.get::<UserId>("user_id") {
         Some(user_id) => {
+            #[cfg(feature = "crawl_test")]
+            let last_synced = chrono::Utc::now();
+            #[cfg(not(feature = "crawl_test"))]
             let last_synced = google_calendar::get_last_synced(db, user_id).await.unwrap();
             ClientUserData::User { last_synced }
         }
@@ -294,25 +308,29 @@ async fn logout(mut session: WritableSession) -> Response {
 
 async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool>) -> Json<bool> {
     if let Some(user_id) = session.get::<UserId>("user_id") {
-        let Ok(last_synced) = google_calendar::get_last_synced(db.clone(), user_id).await else {
-            return Json(false);
-        };
+        #[cfg(not(feature = "crawl_test"))]
+        {
+            let Ok(last_synced) = google_calendar::get_last_synced(db.clone(), user_id).await
+            else {
+                return Json(false);
+            };
 
-        let duration = chrono::Utc::now() - last_synced;
-        if duration < chrono::Duration::minutes(1) {
-            info!("Recently updated");
-            return Json(false);
+            let duration = chrono::Utc::now() - last_synced;
+            if duration < chrono::Duration::minutes(1) {
+                info!("Recently updated");
+                return Json(false);
+            }
         }
 
-        if let Ok(Some(naver_user)) = NaverUser::from_user_id(db.clone(), user_id).await {
-            if let Err(e) = naver_user.fetch(db.clone()).await {
+        if let Ok(Some(user)) = NaverUser::from_user_id(db.clone(), user_id).await {
+            if let Err(e) = user.fetch(db.clone()).await {
                 error!("error - {e:?}");
                 return Json(false);
             }
         }
 
-        if let Ok(Some(kobus_user)) = KobusUser::from_user_id(db.clone(), user_id).await {
-            if let Err(e) = kobus_user.fetch(db.clone()).await {
+        if let Ok(Some(user)) = KobusUser::from_user_id(db.clone(), user_id).await {
+            if let Err(e) = user.fetch(db.clone()).await {
                 error!("error - {e:?}");
                 return Json(false);
             }
@@ -325,6 +343,7 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
             }
         }
 
+        #[cfg(not(feature = "crawl_test"))]
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
                 error!("error - {e:?}");
@@ -421,29 +440,32 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
 
     let user_ids = Arc::new(tokio::join!(user_id_collector, naver, kobus, catch_table).0?);
 
-    let google = tokio::spawn({
-        let db = db.clone();
-        let user_ids = user_ids.clone();
+    #[cfg(not(feature = "crawl_test"))]
+    {
+        let google = tokio::spawn({
+            let db = db.clone();
+            let user_ids = user_ids.clone();
 
-        async move {
-            for &user_id in user_ids.iter() {
-                let user = match GoogleUser::from_user_id(&db, user_id).await {
-                    Ok(Some(user)) => user,
-                    Ok(None) => continue,
-                    Err(e) => {
-                        error!("Failed to get google user - {e:?}");
-                        continue;
+            async move {
+                for &user_id in user_ids.iter() {
+                    let user = match GoogleUser::from_user_id(&db, user_id).await {
+                        Ok(Some(user)) => user,
+                        Ok(None) => continue,
+                        Err(e) => {
+                            error!("Failed to get google user - {e:?}");
+                            continue;
+                        }
+                    };
+
+                    if let Err(e) = user.sync(&db).await {
+                        error!("Failed to sync google calendar - {e:?}");
                     }
-                };
-
-                if let Err(e) = user.sync(&db).await {
-                    error!("Failed to sync google calendar - {e:?}");
                 }
             }
-        }
-    });
+        });
 
-    let _ = tokio::join!(google);
+        let _ = tokio::join!(google);
+    }
 
     Ok(())
 }
