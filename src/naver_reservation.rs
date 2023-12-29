@@ -69,7 +69,9 @@ impl crate::UserImpl for NaverUser {
 
     async fn update_session(&self, db: SqlitePool) -> anyhow::Result<()> {
         sqlx::query!(
-            "UPDATE `naver_user` SET `ses` = ?, `aut` = ? WHERE `user_id` = ?",
+            "INSERT INTO `naver_user` (`ses`, `aut`, `user_id`) VALUES (?, ?, ?)
+                ON CONFLICT (`user_id`) DO UPDATE
+                SET `ses` = `excluded`.`ses`, `aut` = `excluded`.`aut`  WHERE `user_id` = `excluded`.`user_id`",
             self.ses,
             self.aut,
             self.user_id

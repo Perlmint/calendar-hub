@@ -183,9 +183,7 @@ impl crate::UserImpl for CatchTableUser {
         sqlx::query!(
             "INSERT INTO `catch_table_user` (`jsessionid`, `user_id`) VALUES (?, ?)
                 ON CONFLICT (`user_id`) DO UPDATE
-                SET `jsessionid` = ? WHERE `user_id` = ?",
-            self.jsessionid,
-            self.user_id,
+                SET `jsessionid` = `excluded`.`jsessionid` WHERE `user_id` = `excluded`.`user_id`",
             self.jsessionid,
             self.user_id
         )

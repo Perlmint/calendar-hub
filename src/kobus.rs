@@ -194,7 +194,7 @@ impl crate::UserImpl for KobusUser {
         sqlx::query!(
             r#"INSERT INTO `kobus_user` (`user_id`, `jsessionid`) VALUES (?, ?)
             ON CONFLICT (`user_id`)
-            DO UPDATE SET `jsessionid`=`excluded`.`jsessionid`"#,
+            DO UPDATE SET `jsessionid`=`excluded`.`jsessionid` WHERE `user_id` = `excluded`.`user_id`"#,
             self.user_id,
             self.jsessionid
         )
