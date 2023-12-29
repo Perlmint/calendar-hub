@@ -191,6 +191,7 @@ async fn main() -> anyhow::Result<()> {
     let router = router.nest("/google", calendar_hub::google_calendar::web_router());
     let router = router.nest("/naver", calendar_hub::naver_reservation::web_router());
     let router = router.nest("/kobus", calendar_hub::kobus::web_router());
+    let router = router.nest("/catch-table", calendar_hub::catch_table::web_router());
 
     #[cfg(debug_assertions)]
     let router = router.route("/poll_force", get(poll_dev));
@@ -317,6 +318,13 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
             }
         }
 
+        if let Ok(Some(user)) = CatchTableUser::from_user_id(db.clone(), user_id).await {
+            if let Err(e) = user.fetch(db.clone()).await {
+                error!("error - {e:?}");
+                return Json(false);
+            }
+        }
+
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
                 error!("error - {e:?}");
@@ -387,9 +395,31 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
         }
     });
 
+    let catch_table = tokio::spawn({
+        let db = db.clone();
+        let user_id_sender = user_id_sender.clone();
+        async move {
+            let mut users = CatchTableUser::all(&db);
+            while let Some(user) = users.next().await {
+                match user {
+                    Ok(kobus_user) => {
+                        let user_id = kobus_user.user_id();
+
+                        user_id_sender.send(user_id).unwrap();
+
+                        if let Err(e) = kobus_user.fetch(db.clone()).await {
+                            error!("Failed to fetch kobus data for {user_id:?} - {e:?}");
+                        }
+                    }
+                    Err(e) => error!("Failed to get kobus user info from DB - {e:?}"),
+                }
+            }
+        }
+    });
+
     drop(user_id_sender);
 
-    let user_ids = Arc::new(tokio::join!(user_id_collector, naver, kobus,).0?);
+    let user_ids = Arc::new(tokio::join!(user_id_collector, naver, kobus, catch_table).0?);
 
     let google = tokio::spawn({
         let db = db.clone();

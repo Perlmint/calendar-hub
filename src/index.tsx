@@ -21,6 +21,10 @@ import Kobus, {
   loadData as kobusLoadData,
   updateAction as kobusUpdateAction,
 } from "./kobus";
+import CatchTable, {
+  loadData as catchTableLoadData,
+  updateAction as catchTableUpdateAction,
+} from "./catch_table";
 import "@picocss/pico/css/pico.classless.min.css";
 import { AsyncReturnType } from "./utils";
 
@@ -39,10 +43,11 @@ function Layout() {
           <li>
             <NavLink to="/naver">Naver</NavLink>
           </li>
-        </ul>
-        <ul>
           <li>
             <NavLink to="/kobus">kobus</NavLink>
+          </li>
+          <li>
+            <NavLink to="/catch-table">catch table</NavLink>
           </li>
         </ul>
       </nav>
@@ -128,6 +133,9 @@ const router = createBrowserRouter(
         </Route>
         <Route path="kobus" element={<Kobus />} loader={kobusLoadData}>
           <Route path="user" action={kobusUpdateAction} />
+        </Route>
+        <Route path="catch-table" element={<CatchTable />} loader={catchTableLoadData}>
+          <Route path="user" action={catchTableUpdateAction} />
         </Route>
       </Route>
     </>
