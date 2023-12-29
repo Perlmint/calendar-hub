@@ -2,7 +2,7 @@ import React from "react";
 import { ActionFunctionArgs, Form, Navigate, Params, useLoaderData } from "react-router-dom";
 import { AsyncReturnType, formDataToJsonString } from './utils';
 
-export async function loadData() {
+export async function loader() {
     const resp = await fetch("/naver/user", {
         credentials: "same-origin",
     });
@@ -18,7 +18,7 @@ export async function loadData() {
     }
 }
 
-export async function updateAction({ request }: ActionFunctionArgs) {
+export async function action({ request }: ActionFunctionArgs) {
     const formData = await request.formData();
     return await fetch("/naver/user", {
         headers: {
@@ -29,12 +29,12 @@ export async function updateAction({ request }: ActionFunctionArgs) {
     });
 }
 
-export default function () {
-    const data = useLoaderData() as AsyncReturnType<typeof loadData>;
+export function Component() {
+    const data = useLoaderData() as AsyncReturnType<typeof loader>;
 
     if (data !== null) {
         return <div>
-            <Form method="post" action="/api/naver">
+            <Form method="post" action="/naver">
                 <label htmlFor="ses">SES</label>
                 <input type="text" name="ses" defaultValue={data.ses} />
                 <label htmlFor="aut">AUT</label>

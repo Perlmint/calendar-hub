@@ -2,7 +2,7 @@ import React from "react";
 import { ActionFunctionArgs, Form, Navigate, Params, useLoaderData } from "react-router-dom";
 import { AsyncReturnType, formDataToJsonString } from './utils';
 
-export async function loadData() {
+export async function loader() {
     const resp = await fetch("/catch-table/user", {
         credentials: "same-origin",
     });
@@ -17,7 +17,7 @@ export async function loadData() {
     }
 }
 
-export async function updateAction({ request }: ActionFunctionArgs) {
+export async function action({ request }: ActionFunctionArgs) {
     const formData = await request.formData();
     return await fetch("/catch-table/user", {
         headers: {
@@ -28,12 +28,12 @@ export async function updateAction({ request }: ActionFunctionArgs) {
     });
 }
 
-export default function () {
-    const data = useLoaderData() as AsyncReturnType<typeof loadData>;
+export function Component() {
+    const data = useLoaderData() as AsyncReturnType<typeof loader>;
 
     if (data !== null) {
         return <div>
-            <Form method="post" action="/catch-table/user">
+            <Form method="post" action="/catch-table">
                 <label htmlFor="ses">x-ct-a</label>
                 <input type="text" name="jsessionid" defaultValue={data.jsessionid} />
                 <button type="submit">Update</button>

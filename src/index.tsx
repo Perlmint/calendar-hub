@@ -7,24 +7,7 @@ import {
   RouterProvider,
   useRouteLoaderData,
 } from "react-router";
-import {
-  createBrowserRouter,
-  Form,
-  NavLink,
-  useFormAction,
-} from "react-router-dom";
-import NaverReservation, {
-  loadData as naverReservationLoadData,
-  updateAction as naverReservationUpdateAction,
-} from "./naver_reservation";
-import Kobus, {
-  loadData as kobusLoadData,
-  updateAction as kobusUpdateAction,
-} from "./kobus";
-import CatchTable, {
-  loadData as catchTableLoadData,
-  updateAction as catchTableUpdateAction,
-} from "./catch_table";
+import { createBrowserRouter, Form, NavLink } from "react-router-dom";
 import "@picocss/pico/css/pico.classless.min.css";
 import { AsyncReturnType } from "./utils";
 
@@ -124,19 +107,9 @@ const router = createBrowserRouter(
         element={<Layout />}
       >
         <Route path="" element={<Index />} />
-        <Route
-          path="naver"
-          element={<NaverReservation />}
-          loader={naverReservationLoadData}
-        >
-          <Route path="user" action={naverReservationUpdateAction} />
-        </Route>
-        <Route path="kobus" element={<Kobus />} loader={kobusLoadData}>
-          <Route path="user" action={kobusUpdateAction} />
-        </Route>
-        <Route path="catch-table" element={<CatchTable />} loader={catchTableLoadData}>
-          <Route path="user" action={catchTableUpdateAction} />
-        </Route>
+        <Route path="naver" lazy={() => import("./naver_reservation")} />
+        <Route path="kobus" lazy={() => import("./kobus")} />
+        <Route path="catch-table" lazy={() => import("./catch_table")} />
       </Route>
     </>
   )
