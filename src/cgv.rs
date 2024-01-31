@@ -146,7 +146,9 @@ async fn fetch_detail(
                             0,
                         )
                         .ok_or_else(|| {
-                            anyhow::anyhow!("Failed to convert end time - {end_hour}:{end_minute} - {s}")
+                            anyhow::anyhow!(
+                                "Failed to convert end time - {end_hour}:{end_minute} - {s}"
+                            )
                         })?,
                     );
                 }
@@ -166,8 +168,16 @@ async fn fetch_detail(
                 .ok_or_else(|| anyhow::anyhow!("Could not get next day of {:?}", date))?,
         )
     };
-    let (date_begin, time_begin) = date_time_to_utc(date_begin, time_begin, chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap());
-    let (date_end, time_end) = date_time_to_utc(date_end, time_end, chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap());
+    let (date_begin, time_begin) = date_time_to_utc(
+        date_begin,
+        time_begin,
+        chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap(),
+    );
+    let (date_end, time_end) = date_time_to_utc(
+        date_end,
+        time_end,
+        chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap(),
+    );
 
     let ticket_detail_element = fragment
         .select(selector!(".ticket-detail"))
@@ -285,8 +295,11 @@ impl crate::UserImpl for CgvUser {
             reservations.push(reservation);
         }
 
-        let updated_item_count =
-            CalendarEvent::upsert_events_to_db(self.user_id, &db, reservations.iter()).await?;
+        let updated_item_count = if reservations.is_empty() {
+            0
+        } else {
+            CalendarEvent::upsert_events_to_db(self.user_id, &db, reservations.iter()).await?
+        };
         info!("updated item count: {updated_item_count}",);
 
         Ok(updated_item_count > 0)
