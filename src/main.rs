@@ -321,28 +321,28 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
 
         if let Ok(Some(user)) = NaverUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
-                error!("error - {e:?}");
+                error!("fetch naver - {e:?}");
                 return Json(false);
             }
         }
 
         if let Ok(Some(user)) = KobusUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
-                error!("error - {e:?}");
+                error!("fetch kobus - {e:?}");
                 return Json(false);
             }
         }
 
         if let Ok(Some(user)) = CatchTableUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
-                error!("error - {e:?}");
+                error!("fetch catch table - {e:?}");
                 return Json(false);
             }
         }
 
         if let Ok(Some(user)) = CgvUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
-                error!("error - {e:?}");
+                error!("fetch cgv - {e:?}");
                 return Json(false);
             }
         }
