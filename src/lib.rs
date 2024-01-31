@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use axum::{
     async_trait,
     response::{IntoResponse, Response},
@@ -6,7 +8,7 @@ use axum::{
 use axum_sessions::extractors::ReadableSession;
 use hyper::StatusCode;
 use log::{debug, error, info};
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 
 pub mod catch_table;
 pub mod cgv;
@@ -85,6 +87,20 @@ impl AsRef<str> for EventId {
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15";
 
+pub fn date_time_to_utc(
+    date: chrono::NaiveDate,
+    time: chrono::NaiveTime,
+    tz: impl chrono::TimeZone,
+) -> (chrono::NaiveDate, chrono::NaiveTime) {
+    let date_time = date
+        .and_time(time)
+        .and_local_timezone(tz)
+        .latest()
+        .unwrap()
+        .naive_utc();
+    (date_time.date(), date_time.time())
+}
+
 #[derive(Debug, Clone)]
 pub struct CalendarEvent {
     pub id: String,
@@ -157,6 +173,32 @@ impl CalendarEvent {
             .await?;
 
         Ok(result.rows_affected())
+    }
+
+    pub(crate) async fn filter_ids<'a>(
+        user_id: UserId,
+        db: &SqlitePool,
+        ids: &'a [impl AsRef<str> + 'a],
+    ) -> anyhow::Result<Vec<&'a str>> {
+        let mut builder = sqlx::query_builder::QueryBuilder::new(
+            "SELECT `id` FROM `reservation` WHERE `user_id` = ",
+        );
+        builder.push_bind(user_id).push(" AND `id` IN ");
+        let result = builder
+            .push_tuples(ids, |mut f, id| {
+                f.push_bind(id.as_ref());
+            })
+            .build()
+            .fetch_all(db)
+            .await?;
+        let mut existing_ids = result
+            .into_iter()
+            .map(|item| item.get_unchecked::<String, _>(0))
+            .collect::<HashSet<String>>();
+        Ok(ids
+            .iter()
+            .filter_map(|i| (!existing_ids.remove(i.as_ref())).then(|| i.as_ref()))
+            .collect())
     }
 
     pub(crate) async fn cancel_not_expired_and_not_in(
