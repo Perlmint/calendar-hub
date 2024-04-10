@@ -454,10 +454,10 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
                         user_id_sender.send(user_id).unwrap();
 
                         if let Err(e) = user.fetch(db.clone()).await {
-                            error!("Failed to fetch kobus data for {user_id:?} - {e:?}");
+                            error!("Failed to fetch cgv data for {user_id:?} - {e:?}");
                         }
                     }
-                    Err(e) => error!("Failed to get kobus user info from DB - {e:?}"),
+                    Err(e) => error!("Failed to get cgv user info from DB - {e:?}"),
                 }
             }
         }
