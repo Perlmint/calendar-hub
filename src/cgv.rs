@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use axum::{async_trait, Router};
 use chrono::Datelike;
 use futures::StreamExt;
+use hyper::StatusCode;
 use itertools::Itertools as _;
 use log::info;
 use reqwest::{
@@ -242,7 +243,7 @@ async fn fetch_detail(
 impl crate::UserImpl for CgvUser {
     type Detail = CgvUserDetail;
 
-    const PING_INTERVAL: Option<std::time::Duration> = None;
+    const PING_INTERVAL: Option<std::time::Duration> = Some(std::time::Duration::from_secs(29 * 60));
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let jar = self.to_cookie_jar();
@@ -328,6 +329,26 @@ impl crate::UserImpl for CgvUser {
         .await
         .context("Failed to update catch table user session data")
         .map(|_| ())
+    }
+
+    async fn ping(&self) -> anyhow::Result<()> {
+        let jar = self.to_cookie_jar();
+        let planned_url = url!("https://m.cgv.co.kr/");
+        let client = reqwest::Client::new();
+        let req = client
+            .post(planned_url.as_ref())
+            .header(reqwest::header::COOKIE, jar.cookies(planned_url).unwrap())
+            .build()?;
+
+        let res = client.execute(req).await?;
+
+        if res.status() != StatusCode::OK {
+            return Err(anyhow::anyhow!(
+                "Failed to fetch data. Session could be expired"
+            ));
+        }
+
+        Ok(())
     }
 }
 
