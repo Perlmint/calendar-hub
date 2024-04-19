@@ -13,7 +13,13 @@ use axum_sessions::{
     PersistencePolicy, SessionLayer,
 };
 use calendar_hub::{
-    catch_table::CatchTableUser, cgv::CgvUser, google_calendar::{self, GoogleUser}, kobus::KobusUser, naver_reservation::NaverUser, UserId, UserImpl
+    catch_table::CatchTableUser,
+    cgv::CgvUser,
+    google_calendar::{self, GoogleUser},
+    kobus::KobusUser,
+    megabox::MegaboxUser,
+    naver_reservation::NaverUser,
+    UserId, UserImpl,
 };
 use futures::{Future, TryStream};
 use hyper::{header, Uri};
@@ -236,6 +242,27 @@ async fn main() -> anyhow::Result<()> {
             .unwrap();
     }
 
+    if let Some(duration) = MegaboxUser::PING_INTERVAL {
+        scheduler
+            .add(Job::new_repeated_async(duration, {
+                let db = db_pool.clone();
+                move |_, _| {
+                    let db = db.clone();
+                    Box::pin(async move {
+                        let mut users = MegaboxUser::all(&db);
+                        while let Some(user) = users.next().await {
+                            if let Err(e) = ping_user(user).await {
+                                error!("Failed to ping - {}", e);
+                            } else {
+                                info!("Success ping for megabox");
+                            }
+                        }
+                    })
+                }
+            })?)
+            .await
+            .unwrap();
+    }
 
     tokio::spawn(async move { scheduler.start().await });
     info!("Scheduler started");
@@ -267,6 +294,7 @@ async fn main() -> anyhow::Result<()> {
     let router = router.nest("/kobus", calendar_hub::kobus::web_router());
     let router = router.nest("/catch-table", calendar_hub::catch_table::web_router());
     let router = router.nest("/cgv", calendar_hub::cgv::web_router());
+    let router = router.nest("/megabox", calendar_hub::megabox::web_router());
 
     #[cfg(debug_assertions)]
     let router = router.route("/poll_force", get(poll_dev));
@@ -416,6 +444,13 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
             }
         }
 
+        if let Ok(Some(user)) = MegaboxUser::from_user_id(db.clone(), user_id).await {
+            if let Err(e) = user.fetch(db.clone()).await {
+                error!("fetch megabox - {e:?}");
+                return Json(false);
+            }
+        }
+
         #[cfg(not(feature = "crawl_test"))]
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
@@ -531,9 +566,32 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
         }
     });
 
+    let megabox = tokio::spawn({
+        let db = db.clone();
+        let user_id_sender = user_id_sender.clone();
+        async move {
+            let mut users = MegaboxUser::all(&db);
+            while let Some(user) = users.next().await {
+                match user {
+                    Ok(user) => {
+                        let user_id = user.user_id();
+
+                        user_id_sender.send(user_id).unwrap();
+
+                        if let Err(e) = user.fetch(db.clone()).await {
+                            error!("Failed to fetch megabox data for {user_id:?} - {e:?}");
+                        }
+                    }
+                    Err(e) => error!("Failed to get megabox user info from DB - {e:?}"),
+                }
+            }
+        }
+    });
+
     drop(user_id_sender);
 
-    let user_ids = Arc::new(tokio::join!(user_id_collector, naver, kobus, catch_table, cgv).0?);
+    let user_ids =
+        Arc::new(tokio::join!(user_id_collector, naver, kobus, catch_table, cgv, megabox).0?);
 
     #[cfg(not(feature = "crawl_test"))]
     {
