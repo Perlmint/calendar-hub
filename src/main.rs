@@ -355,7 +355,9 @@ async fn get_user(
             #[cfg(feature = "crawl_test")]
             let last_synced = chrono::Utc::now();
             #[cfg(not(feature = "crawl_test"))]
-            let last_synced = google_calendar::get_last_synced(_db, user_id).await.unwrap();
+            let last_synced = google_calendar::get_last_synced(_db, user_id)
+                .await
+                .unwrap();
             ClientUserData::User { last_synced }
         }
         None => ClientUserData::None,
@@ -506,7 +508,6 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
             }
         }
     });
-
 
     let cgv = tokio::spawn({
         let db = db.clone();
