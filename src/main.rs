@@ -148,6 +148,50 @@ async fn main() -> anyhow::Result<()> {
         .await
         .unwrap();
 
+    if let Some(duration) = NaverUser::PING_INTERVAL {
+        scheduler
+            .add(Job::new_repeated_async(duration, {
+                let db = db_pool.clone();
+                move |_, _| {
+                    let db = db.clone();
+                    Box::pin(async move {
+                        let mut users = NaverUser::all(&db);
+                        while let Some(user) = users.next().await {
+                            if let Err(e) = ping_user(user).await {
+                                error!("Failed to ping - {}", e);
+                            } else {
+                                info!("Success ping for kobus");
+                            }
+                        }
+                    })
+                }
+            })?)
+            .await
+            .unwrap();
+    }
+
+    if let Some(duration) = CatchTableUser::PING_INTERVAL {
+        scheduler
+            .add(Job::new_repeated_async(duration, {
+                let db = db_pool.clone();
+                move |_, _| {
+                    let db = db.clone();
+                    Box::pin(async move {
+                        let mut users = CatchTableUser::all(&db);
+                        while let Some(user) = users.next().await {
+                            if let Err(e) = ping_user(user).await {
+                                error!("Failed to ping - {}", e);
+                            } else {
+                                info!("Success ping for kobus");
+                            }
+                        }
+                    })
+                }
+            })?)
+            .await
+            .unwrap();
+    }
+
     if let Some(duration) = KobusUser::PING_INTERVAL {
         scheduler
             .add(Job::new_repeated_async(duration, {
@@ -169,6 +213,29 @@ async fn main() -> anyhow::Result<()> {
             .await
             .unwrap();
     }
+
+    if let Some(duration) = CgvUser::PING_INTERVAL {
+        scheduler
+            .add(Job::new_repeated_async(duration, {
+                let db = db_pool.clone();
+                move |_, _| {
+                    let db = db.clone();
+                    Box::pin(async move {
+                        let mut users = CgvUser::all(&db);
+                        while let Some(user) = users.next().await {
+                            if let Err(e) = ping_user(user).await {
+                                error!("Failed to ping - {}", e);
+                            } else {
+                                info!("Success ping for cgv");
+                            }
+                        }
+                    })
+                }
+            })?)
+            .await
+            .unwrap();
+    }
+
 
     tokio::spawn(async move { scheduler.start().await });
     info!("Scheduler started");
