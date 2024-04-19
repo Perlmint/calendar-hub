@@ -546,8 +546,10 @@ async fn begin_login(
             }
         };
 
-        let minimum_date_time =
-            chrono::DateTime::<chrono::Utc>::from_utc(chrono::NaiveDateTime::MIN, chrono::Utc);
+        let minimum_date_time = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+            chrono::NaiveDateTime::MIN,
+            chrono::Utc,
+        );
         sqlx::query!(
             r#"INSERT INTO `google_user`
             (`user_id`, `calendar_id`, `acl_id`, `last_synced`, `subject`)
@@ -790,5 +792,5 @@ pub async fn get_last_synced(
     .fetch_one(&db)
     .await
     .context("Failed to get last_synced for ({user_id:?}) from DB")
-    .map(|row| chrono::DateTime::from_utc(row.last_synced, chrono::Utc))
+    .map(|row| chrono::DateTime::from_naive_utc_and_offset(row.last_synced, chrono::Utc))
 }

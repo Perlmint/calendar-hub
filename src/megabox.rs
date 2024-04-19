@@ -3,7 +3,7 @@ use axum::{async_trait, Router};
 use futures::StreamExt;
 use log::info;
 use reqwest::cookie::CookieStore;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{date_time_to_utc, url, CalendarEvent, UserId};
@@ -97,21 +97,39 @@ impl TryFrom<Reservation> for Option<CalendarEvent> {
         );
         let date_begin = chrono::NaiveDate::parse_from_str(&value.play_date, "%Y%m%d")
             .context("Failed to parse date")?;
-        let time_begin: u32 =  value.play_start_time.parse().context("Failed to parse time")?;
-        let time_end: u32 = value.play_end_time.parse().context("Failed to parse time")?;
+        let time_begin: u32 = value
+            .play_start_time
+            .parse()
+            .context("Failed to parse time")?;
+        let time_end: u32 = value
+            .play_end_time
+            .parse()
+            .context("Failed to parse time")?;
         let hour_begin = time_begin / 100;
         let minute_begin = time_begin % 100;
         let hour_end = time_end / 100;
         let minute_end = time_end % 100;
         let (date_end, time_end) = if hour_end < 24 {
-            (date_begin, chrono::NaiveTime::from_hms_opt(hour_end, minute_end, 0).unwrap())
+            (
+                date_begin,
+                chrono::NaiveTime::from_hms_opt(hour_end, minute_end, 0).unwrap(),
+            )
         } else {
-            (date_begin.succ_opt().unwrap(), chrono::NaiveTime::from_hms_opt(hour_end - 24, minute_end, 0).unwrap())
+            (
+                date_begin.succ_opt().unwrap(),
+                chrono::NaiveTime::from_hms_opt(hour_end - 24, minute_end, 0).unwrap(),
+            )
         };
         let (date_begin, time_begin) = if hour_begin < 24 {
-            (date_begin, chrono::NaiveTime::from_hms_opt(hour_begin, minute_begin, 0).unwrap())
+            (
+                date_begin,
+                chrono::NaiveTime::from_hms_opt(hour_begin, minute_begin, 0).unwrap(),
+            )
         } else {
-            (date_begin.succ_opt().unwrap(), chrono::NaiveTime::from_hms_opt(hour_begin - 24, minute_begin, 0).unwrap())
+            (
+                date_begin.succ_opt().unwrap(),
+                chrono::NaiveTime::from_hms_opt(hour_begin - 24, minute_begin, 0).unwrap(),
+            )
         };
         let (date_begin, time_begin) = date_time_to_utc(
             date_begin,
@@ -174,7 +192,10 @@ impl crate::UserImpl for MegaboxUser {
         let client = reqwest::Client::new();
         let req = client
             .get(planned_url.as_ref())
-            .header(reqwest::header::REFERER, "https://www.megabox.co.kr/mypage/bookinglist")
+            .header(
+                reqwest::header::REFERER,
+                "https://www.megabox.co.kr/mypage/bookinglist",
+            )
             .header(reqwest::header::COOKIE, jar.cookies(planned_url).unwrap())
             .json(&serde_json::json!({
                 "divCd": "B",
