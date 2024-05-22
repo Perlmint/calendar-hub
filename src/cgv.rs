@@ -1,3 +1,4 @@
+// cSpell:ignore runningtime Regist Reserv
 use std::str::FromStr;
 
 use anyhow::Context as _;
@@ -243,7 +244,8 @@ async fn fetch_detail(
 impl crate::UserImpl for CgvUser {
     type Detail = CgvUserDetail;
 
-    const PING_INTERVAL: Option<std::time::Duration> = Some(std::time::Duration::from_secs(29 * 60));
+    const PING_INTERVAL: Option<std::time::Duration> =
+        Some(std::time::Duration::from_secs(29 * 60));
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let jar = self.to_cookie_jar();

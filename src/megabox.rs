@@ -1,3 +1,4 @@
+// cSpell:ignore bokd brch theab
 use anyhow::Context;
 use axum::{async_trait, Router};
 use futures::StreamExt;
@@ -37,52 +38,16 @@ struct Reservation {
     branch_name: String,
     #[serde(rename = "theabNm")]
     theater_name: String,
-    // #[serde(rename = "movieKindNm")]
-    // movie_kind_name: String,
-    // movieEventTyNm: Option<?>,
     #[serde(rename = "theabFlrNm")]
     theater_floor_name: String,
-    // brchNo: String,
-    // movieNo: String,
-    // movieCttsTyCd: String,
-    // playSeq: i32,
-    // hotdealStatCd: Option<()>,
-    // #[serde(rename = "rpstMovieNo")]
-    // movie_id: String,
     #[serde(rename = "seatNm")]
     seat_name: String,
-    // admisPcnt: String,
-    // resvrPoint: i32,
-    // drnkAddStatCd: String,
-    // playDayAt: String,
-    // playOverAt: String,
-    // playAt: String,
-    // mbIdntfcDivCd: String,
-    // theabKindCd: String,
-    // payAmt: i32,
-    // prdtAmt: i32,
     #[serde(rename = "playDe")]
     play_date: String,
     #[serde(rename = "playStartTime")]
     play_start_time: String,
     #[serde(rename = "playEndTime")]
     play_end_time: String,
-    // dowNm: String,
-    // fstRegDtFmt: String,
-    // fstRegDt: String,
-    // sellStatNm: String,
-    // privateYn: String,
-    // privateCancelYn: String,
-    // privateCancelCtrlTime: Option<()>,
-    // custNm: String,
-    // chkStrDe: String,
-    // chkEndDe: String,
-    // okSaveAmt: i32,
-    // privPackList: Option<()>,
-    // totCnt: i32,
-    // goodsAcptChk: String,
-    // currentPage: i32,
-    // recordCountPerPage: i32,
 }
 
 impl TryFrom<Reservation> for Option<CalendarEvent> {
