@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 #[allow(unused_imports)]
 use chrono::Timelike; // false warning
 use itertools::Itertools;
@@ -35,6 +35,7 @@ impl<'de> serde::Deserialize<'de> for MainPageApolloState {
             where
                 A: serde::de::MapAccess<'dv>,
             {
+                use serde::de::Error;
                 let mut upcoming_bookings = HashSet::new();
                 let mut bookings = HashMap::new();
                 while let Some(key) = map.next_key::<String>()? {
@@ -54,14 +55,20 @@ impl<'de> serde::Deserialize<'de> for MainPageApolloState {
                             __ref: String,
                         }
                         upcoming_bookings.extend(
-                            map.next_value::<RootQuery>()?
+                            map.next_value::<RootQuery>()
+                                .map_err(|e| {
+                                    A::Error::custom(format!("Failed to parse RootQuery - {e}"))
+                                })?
                                 .upcoming_booking
                                 .bookings
                                 .into_iter()
                                 .map(|data_ref| data_ref.__ref),
                         );
                     } else if key.starts_with("BookingDetails:") {
-                        bookings.insert(key, map.next_value::<BookingWrap>()?);
+                        let value = map.next_value::<BookingWrap>().map_err(|e| {
+                            A::Error::custom(format!("Failed to parse BookingDetail({key}) - {e}"))
+                        })?;
+                        bookings.insert(key, value);
                     } else {
                         map.next_value::<serde::de::IgnoredAny>()?;
                     }
@@ -99,7 +106,8 @@ pub(super) async fn fetch(jar: &Jar) -> anyhow::Result<Vec<CalendarEvent>> {
         let Some(apollo_state_text) = text.strip_prefix("window.__APOLLO_STATE__=") else {
             continue;
         };
-        let state: MainPageApolloState = json5::from_str(apollo_state_text)?;
+        let state: MainPageApolloState =
+            json5::from_str(apollo_state_text).context("Failed to parse apollo_context")?;
 
         let upcoming_bookings = state.upcoming_bookings;
 

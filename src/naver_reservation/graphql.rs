@@ -82,17 +82,9 @@ enum BookingTimeUnitCode {
 #[serde(rename_all = "camelCase")]
 struct Booking {
     booking_id: i64,
-    // business: any
-    // business_id: i64,
-    // business_name: String,
     service_name: String,
-    // cancelled_date_time: Option<chrono::DateTime<chrono::FixedOffset>>,
-    // completed_date_time: chrono::DateTime<chrono::FixedOffset>,
-    // regDatetime: any
     #[serde(rename = "bizItemName")]
     business_item_name: String,
-    // #[serde(rename = "bizItemId")]
-    // business_item_id: i64,
     start_date_time: chrono::DateTime<chrono::Utc>,
     end_date_time: chrono::DateTime<chrono::Utc>,
     global_timezone: String,
@@ -100,8 +92,6 @@ struct Booking {
     #[serde(rename = "bizItemAddressJson")]
     #[serde_as(deserialize_as = "serde_with::DefaultOnError")]
     business_item_address_json: Option<Address>,
-    // #[serde(rename = "bookingOptionJson")]
-    // options: Vec<ReservationOption>,
     booking_time_unit_code: BookingTimeUnitCode,
 }
 
@@ -151,12 +141,22 @@ impl Booking {
             .unwrap_or(&self.business_address_json);
         if let Some(place_name) = &address.place_name {
             if let Some(detail) = &address.detail {
-                format!("{} {place_name} {detail}", address.road_addr)
+                format!(
+                    "{} {place_name} {detail}",
+                    address.road_addr.as_ref().unwrap_or(&address.address)
+                )
             } else {
-                format!("{} {place_name}", address.road_addr)
+                format!(
+                    "{} {place_name}",
+                    address.road_addr.as_ref().unwrap_or(&address.address)
+                )
             }
         } else {
-            address.road_addr.clone()
+            address
+                .road_addr
+                .as_ref()
+                .unwrap_or(&address.address)
+                .clone()
         }
     }
 }
@@ -197,7 +197,8 @@ struct ReservationOption {
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Address {
-    road_addr: String,
+    road_addr: Option<String>,
+    address: String,
     place_name: Option<String>,
     detail: Option<String>,
 }
