@@ -419,35 +419,30 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
         if let Ok(Some(user)) = NaverUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
                 error!("fetch naver - {e:?}");
-                return Json(false);
             }
         }
 
         if let Ok(Some(user)) = KobusUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
                 error!("fetch kobus - {e:?}");
-                return Json(false);
             }
         }
 
         if let Ok(Some(user)) = CatchTableUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
                 error!("fetch catch table - {e:?}");
-                return Json(false);
             }
         }
 
         if let Ok(Some(user)) = CgvUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
                 error!("fetch cgv - {e:?}");
-                return Json(false);
             }
         }
 
         if let Ok(Some(user)) = MegaboxUser::from_user_id(db.clone(), user_id).await {
             if let Err(e) = user.fetch(db.clone()).await {
                 error!("fetch megabox - {e:?}");
-                return Json(false);
             }
         }
 
@@ -455,7 +450,6 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
                 error!("error - {e:?}");
-                return Json(false);
             }
         }
     }
