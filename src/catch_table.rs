@@ -58,8 +58,8 @@ struct DiningDetail {
 struct Shop {
     shop_name: String,
     shop_address: String,
-    land_name: String,
-    food_kind: String,
+    land_name: Option<String>,
+    food_kind: Option<String>,
 }
 
 impl TryFrom<Reservation> for Option<CalendarEvent> {
@@ -73,7 +73,14 @@ impl TryFrom<Reservation> for Option<CalendarEvent> {
         let id = format!("catch_table/{}", dining.common.reservation_ref);
         let title = dining.shop.shop_name;
         let location = dining.shop.shop_address;
-        let detail = format!("{} - {}", dining.shop.land_name, dining.shop.food_kind);
+        let detail = itertools::join(
+            dining
+                .shop
+                .land_name
+                .into_iter()
+                .chain(dining.shop.food_kind.into_iter()),
+            " - ",
+        );
         let date_time =
             chrono::NaiveDateTime::from_timestamp_millis(dining.dining.visit_date_time as i64)
                 .context("Failed to convert from timestamp")?;
