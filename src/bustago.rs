@@ -154,7 +154,9 @@ impl crate::UserImpl for BustagoUser {
         Some(std::time::Duration::from_secs(10 * 60));
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
-        let date_begin = chrono::NaiveDate::from_ymd_opt(2024, 04, 01).unwrap();
+        let date_begin = chrono::Utc::now()
+            .with_timezone(&chrono::FixedOffset::east_opt(9).unwrap())
+            .date_naive();
         let date_end = date_begin + chrono::Duration::days(7);
         let jar = self.to_cookie_jar();
         let reservations_url = url!("https://www.bustago.or.kr/newweb/kr/reserve/reservejson.do");
