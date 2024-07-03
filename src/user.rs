@@ -33,16 +33,30 @@ impl From<i64> for UserId {
 
 #[macro_export]
 macro_rules! define_user_data {
-    (#[table_name = $table_name:literal]#[base_url = $url:literal]struct $name:ident { $(#[session_name = $session_name:literal]$field_name:ident: $field_type:ty,)+}) => {
+    (
+        #[table_name = $table_name:literal]
+        #[base_url = $url:literal]
+        struct $name:ident {
+            $(
+                #[session_name = $session_name:literal]
+                $session_field_name:ident: $session_field_type:ty,
+            )+
+            $(
+                $field_name:ident: $field_type:ty,
+            )*
+        }
+    ) => {
         paste::paste!{
             #[derive(serde::Serialize, serde::Deserialize, Default)]
             pub struct [<$name Detail>] {
-                $($field_name: $field_type,)+
+                $($session_field_name: $session_field_type,)+
+                $($field_name: $field_type,)*
             }
 
             pub struct $name {
                 user_id: $crate::UserId,
-                $($field_name: $field_type,)+
+                $($session_field_name: $session_field_type,)+
+                $($field_name: $field_type,)*
             }
 
             impl $name {
@@ -54,7 +68,8 @@ macro_rules! define_user_data {
             impl From<$name> for [<$name Detail>] {
                 fn from(value: $name) -> Self {
                     Self {
-                        $($field_name: value.$field_name,)+
+                        $($session_field_name: value.$session_field_name,)+
+                        $($field_name: value.$field_name,)*
                     }
                 }
             }
@@ -63,7 +78,8 @@ macro_rules! define_user_data {
                 fn from(value: ($crate::UserId, [<$name Detail>])) -> Self {
                     Self {
                         user_id: value.0,
-                        $($field_name: value.1.$field_name,)+
+                        $($session_field_name: value.1.$session_field_name,)+
+                        $($field_name: value.1.$field_name,)*
                     }
                 }
             }
@@ -73,7 +89,7 @@ macro_rules! define_user_data {
                     let endpoint_base = crate::url!($url);
                     let jar = reqwest::cookie::Jar::default();
                     $(
-                        jar.add_cookie_str(&format!("{}={}", $session_name, self.$field_name), endpoint_base);
+                        jar.add_cookie_str(&format!("{}={}", $session_name, self.$session_field_name), endpoint_base);
                     )+
                     jar
                 }
