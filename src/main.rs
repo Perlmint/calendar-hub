@@ -13,6 +13,7 @@ use axum_sessions::{
     PersistencePolicy, SessionLayer,
 };
 use calendar_hub::{
+    bustago::BustagoUser,
     catch_table::CatchTableUser,
     cgv::CgvUser,
     google_calendar::{self, GoogleUser},
@@ -295,6 +296,7 @@ async fn main() -> anyhow::Result<()> {
     let router = router.nest("/catch-table", calendar_hub::catch_table::web_router());
     let router = router.nest("/cgv", calendar_hub::cgv::web_router());
     let router = router.nest("/megabox", calendar_hub::megabox::web_router());
+    let router = router.nest("/bustago", calendar_hub::bustago::web_router());
 
     #[cfg(debug_assertions)]
     let router = router.route("/poll_force", get(poll_dev));
@@ -446,6 +448,12 @@ async fn poll_user(session: ReadableSession, Extension(db): Extension<SqlitePool
             }
         }
 
+        if let Ok(Some(user)) = BustagoUser::from_user_id(db.clone(), user_id).await {
+            if let Err(e) = user.fetch(db.clone()).await {
+                error!("fetch bustago - {e:?}");
+            }
+        }
+
         #[cfg(not(feature = "crawl_test"))]
         if let Ok(Some(google_user)) = GoogleUser::from_user_id(&db, user_id).await {
             if let Err(e) = google_user.sync(&db).await {
@@ -582,10 +590,42 @@ async fn poll(db: SqlitePool) -> anyhow::Result<()> {
         }
     });
 
+    let bustago = tokio::spawn({
+        let db = db.clone();
+        let user_id_sender = user_id_sender.clone();
+        async move {
+            let mut users = BustagoUser::all(&db);
+            while let Some(user) = users.next().await {
+                match user {
+                    Ok(user) => {
+                        let user_id = user.user_id();
+
+                        user_id_sender.send(user_id).unwrap();
+
+                        if let Err(e) = user.fetch(db.clone()).await {
+                            error!("Failed to fetch bustago data for {user_id:?} - {e:?}");
+                        }
+                    }
+                    Err(e) => error!("Failed to get bustago user info from DB - {e:?}"),
+                }
+            }
+        }
+    });
+
     drop(user_id_sender);
 
-    let user_ids =
-        Arc::new(tokio::join!(user_id_collector, naver, kobus, catch_table, cgv, megabox).0?);
+    let user_ids = Arc::new(
+        tokio::join!(
+            user_id_collector,
+            naver,
+            kobus,
+            catch_table,
+            cgv,
+            megabox,
+            bustago
+        )
+        .0?,
+    );
 
     #[cfg(not(feature = "crawl_test"))]
     {

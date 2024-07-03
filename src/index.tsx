@@ -38,6 +38,9 @@ function Layout() {
           <li>
             <NavLink to="/megabox">MEGABOX</NavLink>
           </li>
+          <li>
+            <NavLink to="/bustago">Bustago</NavLink>
+          </li>
         </ul>
       </nav>
       <div>
@@ -118,6 +121,7 @@ const router = createBrowserRouter(
         <Route path="catch-table" lazy={() => import("./catch_table")} />
         <Route path="cgv" lazy={() => import("./cgv")} />
         <Route path="megabox" lazy={() => import("./megabox")} />
+        <Route path="bustago" lazy={() => import("./bustago")} />
       </Route>
     </>
   )

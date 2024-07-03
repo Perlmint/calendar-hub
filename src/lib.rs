@@ -4,6 +4,7 @@ pub mod google_calendar;
 pub mod kobus;
 pub mod megabox;
 pub mod naver_reservation;
+pub mod bustago;
 pub mod reservation;
 pub mod user;
 
