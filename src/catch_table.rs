@@ -30,7 +30,7 @@ enum Reservation {
 #[serde(rename_all = "camelCase")]
 struct ReservationCommon {
     // unique id
-    // https://app.catchtable.co.kr/ct/customer/reservation/detail/<reservation_ref>
+    // https://ct-api.catchtable.co.kr/api/v3/reservation/detail?reservationRef=<reservation_ref>
     reservation_ref: String,
 }
 
@@ -80,7 +80,7 @@ impl TryFrom<Reservation> for Option<CalendarEvent> {
         let date_begin = date_time.date();
         let time_begin = date_time.time();
         let url = format!(
-            "https://app.catchtable.co.kr/ct/customer/reservation/detail/{}",
+            "https://ct-api.catchtable.co.kr/api/v3/reservation/detail?reservationRef={}",
             dining.common.reservation_ref
         );
 
@@ -101,7 +101,7 @@ impl TryFrom<Reservation> for Option<CalendarEvent> {
 
 crate::define_user_data! {
     #[table_name = "catch_table"]
-    #[base_url = "https://app.catchtable.co.kr/"]
+    #[base_url = "https://ct-api.catchtable.co.kr/"]
     struct CatchTableUser {
         #[session_name = "x-ct-a"]
         jsessionid: String,
@@ -128,7 +128,7 @@ impl crate::UserImpl for CatchTableUser {
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let jar = self.to_cookie_jar();
-        let planned_url = url!("https://app.catchtable.co.kr/api/v4/user/reservations/_list?statusGroup=PLANNED&sortCode=DESC&size=10");
+        let planned_url = url!("https://ct-api.catchtable.co.kr/api/v4/user/reservations/_list?statusGroup=PLANNED&sortCode=DESC&size=10");
         let client = reqwest::Client::new();
         let req = client
             .get(planned_url.as_ref())
@@ -155,7 +155,7 @@ impl crate::UserImpl for CatchTableUser {
 
     async fn ping(&self) -> anyhow::Result<()> {
         let jar = self.to_cookie_jar();
-        let url = url!("https://app.catchtable.co.kr/api/v3/user/lastLoginTime");
+        let url = url!("https://ct-api.catchtable.co.kr/api/v3/user/lastLoginTime");
         let client = reqwest::Client::new();
         let req = client
             .post(url.as_ref())
