@@ -307,6 +307,11 @@ impl crate::UserImpl for BustagoUser {
             let time_begin =
                 chrono::NaiveTime::parse_from_str(&reservation.departure_time, "%H%M").unwrap();
 
+            let (date_begin, time_begin) = date_time_to_utc(
+                date_begin,
+                time_begin,
+                chrono::FixedOffset::east_opt(9).unwrap(),
+            );
             let mut dt = chrono::NaiveDateTime::new(date_begin, time_begin);
             dt += std::time::Duration::from_secs(line_info.distance_time * 60);
 
