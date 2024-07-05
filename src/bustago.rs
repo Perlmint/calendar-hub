@@ -155,7 +155,7 @@ impl crate::UserImpl for BustagoUser {
 
     async fn fetch(&self, db: SqlitePool) -> anyhow::Result<bool> {
         let date_begin = chrono::Utc::now()
-            .with_timezone(&chrono::FixedOffset::east_opt(9).unwrap())
+            .with_timezone(&chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap())
             .date_naive();
         let date_end = date_begin + chrono::Duration::days(7);
         let jar = self.to_cookie_jar();
@@ -310,7 +310,7 @@ impl crate::UserImpl for BustagoUser {
             let (date_begin, time_begin) = date_time_to_utc(
                 date_begin,
                 time_begin,
-                chrono::FixedOffset::east_opt(9).unwrap(),
+                chrono::FixedOffset::east_opt(9 * 60 * 60).unwrap(),
             );
             let mut dt = chrono::NaiveDateTime::new(date_begin, time_begin);
             dt += std::time::Duration::from_secs(line_info.distance_time * 60);
