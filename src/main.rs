@@ -1,20 +1,27 @@
 #![allow(non_snake_case)]
+use std::{collections::BTreeMap, future::Future, ops::Deref};
 
-use std::{future::Future, ops::Deref};
-
-use dioxus::prelude::*;
-use dioxus_logger::tracing::{error, info};
-pub(crate) mod tracing {
-    pub use dioxus_logger::tracing::*;
+pub(crate) mod prelude {
+    #![allow(unused_imports)]
+    pub(crate) use super::{flatten_error, wrap_error_async};
+    pub(crate) use anyhow::Context as _;
+    pub(crate) use dioxus_logger::tracing::{debug, error, info, warn};
 }
+
+use chrono::Utc;
+use dioxus::prelude::*;
+use pages::vault::VaultKey;
+use prelude::*;
 
 mod pages;
 mod user;
 
 #[cfg(feature = "server")]
 mod server;
-#[cfg(feature = "server")]
-pub use server::*;
+
+pub(crate) fn flatten_error<T, E>(r: Result<Result<T, E>, E>) -> Result<T, E> {
+    r?
+}
 
 pub(crate) async fn wrap_error_async<T>(f: impl Future<Output = anyhow::Result<T>>) -> Option<T> {
     match f.await {
@@ -39,23 +46,31 @@ fn main() {
     server::run().unwrap();
 }
 
+pub type VaultContext = Resource<BTreeMap<VaultKey, chrono::DateTime<Utc>>>;
+
 #[cfg(any(feature = "web", feature = "server"))]
 fn app() -> Element {
-    let base_url = use_server_future(|| async move {
-        service_base_url().await.unwrap()
-    })?;
-    let user = use_resource(|| async move { pages::UserInfo().await.unwrap_or_default() });
-
-    use_context_provider(|| {
-        info!("user: {:?}", user.value());
-        user.value()
+    let base_url = use_server_future(|| async move { service_base_url().await.unwrap() })?;
+    let user = use_resource(|| async move { pages::get_user_info().await.unwrap_or_default() });
+    let vault = use_resource({
+        let user = user.clone();
+        move || async move {
+            if user.as_ref().map(|u| u.is_signed_in()).unwrap_or_default() {
+                pages::source::list_sources().await.unwrap_or_default()
+            } else {
+                Default::default()
+            }
+        }
     });
+
+    use_context_provider(|| user);
+    use_context_provider(|| vault);
     use_context_provider(|| base_url);
 
     rsx! {
         link {
             rel: "stylesheet",
-            href: "https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css",
+            href: "https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css",
         }
         Router::<pages::Route> {}
     }

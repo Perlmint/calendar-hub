@@ -1,9 +1,5 @@
 use super::UserSession;
-use crate::{
-    server::user::UserKey,
-    tracing::{debug, error, info},
-    wrap_error_async, Config,
-};
+use crate::{prelude::*, server::user::UserKey, server::Config};
 use std::{
     collections::{BTreeMap, HashMap},
     future::Future,
@@ -25,8 +21,8 @@ use tokio::sync::{oneshot, Mutex, RwLock};
 use tower_sessions::Session;
 use uuid::Uuid;
 
-use google_calendar3::oauth2::{
-    self, authenticator_delegate::InstalledFlowDelegate, ApplicationSecret,
+use google_calendar3::yup_oauth2::{
+    self as oauth2, authenticator_delegate::InstalledFlowDelegate, ApplicationSecret,
 };
 
 use super::UserId;
@@ -190,7 +186,7 @@ async fn begin_login(
                 );
 
                 let minimum_date_time = chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                    chrono::NaiveDateTime::MIN,
+                    chrono::NaiveDateTime::UNIX_EPOCH,
                     chrono::Utc,
                 );
                 sqlx::query!(
@@ -266,9 +262,10 @@ async fn login_callback(
                     UserSession::SESSION_KEY,
                     UserSession {
                         user_id,
-                        key: match key_chain_ret {
-                            Some(_) => UserKey::Locked(0),
-                            None => UserKey::NotExist,
+                        key: if key_chain_ret.is_some() {
+                            UserKey::Locked(0)
+                        } else {
+                            UserKey::NotExist
                         },
                         key_pair: None,
                     },

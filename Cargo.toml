@@ -1,46 +1,101 @@
 [package]
 name = "calendar-hub"
 version = "0.1.0"
+authors = ["Gyusun Yeom <omniavinco@gmail.com>"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-anyhow = "1.0.68"
-axum = { version = "0.6.2", features = ["original-uri", "headers"] }
-axum-sessions = "0.5.0"
-base64-url = "2.0.0"
-chrono = "0.4.24"
-env_logger = "0.10.0"
-futures = "0.3.28"
-google-calendar3 = "5.0.2"
-hmac = "0.12.1"
-hyper = "0.14.26"
-include_dir = "0.7.3"
-itertools = "0.10.5"
-json5 = "0.4.1"
-jwt = "0.16.0"
-log = "0.4.17"
-mime_guess = "2.0.4"
-notify = "5.1.0"
-once_cell = "1.17.0"
-paste = "1.0.13"
-regex = "1.7.3"
-reqwest = { version = "0.11.13", features = ["cookies", "serde_json", "json", "native-tls"], default_features = false }
-rsa = "0.9.0"
-scraper = "0.16.0"
-serde = "1.0.160"
-serde_json = "1.0.96"
+aead = { version = "*", features = ["rand_core", "std"], optional = true }
+anyhow = "1.0.86"
+async-trait = { version = "*", optional = true }
+axum = { version = "*", optional = true }
+base64-url = { version = "2.0.0", optional = true }
+chacha20poly1305 = { version = "*", optional = true }
+chrono = { version = "0.4.38", features = ["serde"] }
+ciborium = { version = "0.2.2" }
+dioxus = { version = "0.5.6", features = ["fullstack", "router"] }
+dioxus-logger = "0.5.1"
+dioxus-web = { version = "*", features = ["hydrate"], optional = true }
+enum-iterator = "2.1.0"
+env_logger = { version = "0.10.0", optional = true }
+google-calendar3 = { version = "6.0.0+202405230", optional = true }
+headless_chrome = { path = "../rust-headless-chrome", optional = true }
+hmac = { version = "0.12.1", optional = true }
+hyper = { version = "*", features = ["client"], optional = true }
+hyper-rustls = { version = "0.27.2", optional = true }
+itertools = "0.13.0"
+jwt = { version = "0.16.0", optional = true }
+json5 = { version = "0.4.1", optional = true }
+once_cell = { version = "1.19.0", optional = true }
+paste = { version = "1.0.15", optional = true }
+pwbox = { version = "0.5.0", default-features = false, features = ["pure"], optional = true }
+regex = { version = "1.10.6", optional = true }
+reqwest = { version = "0.12.12", default-features = false, features = ["charset", "cookies", "json", "http2", "rustls-tls"] }
+rsa = { version = "0.9.0", optional = true }
+rustls = { version = "*", optional = true }
+scraper = { version = "0.20.0", optional = true }
+secure-string = { version = "0.3.0", features = ["serde"], optional = true }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.125"
 serde_with = "3.0.0"
-sha2 = { version = "0.10.6", features = ["oid"] }
-sqlx = { version = "0.6.2", features = ["runtime-tokio-native-tls", "sqlite", "chrono"] }
-tokio = { version = "1.24.1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
-tokio-cron-scheduler = "0.9.1"
-tokio-stream = "0.1.12"
-tokio-util = "0.7.8"
-tower-http = { version = "0.4.0", features = ["compression-br", "compression-full"] }
-uuid = { version = "1.3.1", features = ["v4", "serde"] }
+sha2 = { version = "0.10.6", features = ["oid"], optional = true }
+sqlx = { version = "*", features = ["runtime-tokio-rustls", "sqlite", "chrono"], optional = true }
+thiserror = { version = "1.0.63", optional = true }
+tokio = { version = "*", features = ["macros", "rt", "rt-multi-thread", "signal"], optional = true }
+tower-sessions = { version = "*", optional = true }
+tower-sessions-sqlx-store = { version = "*", features = ["sqlite"], optional = true }
+tracing = "*"
+uuid = { version = "1.10.0", features = ["serde", "v4"], optional = true }
 
 [features]
-embed_web = []
-crawl_test = []
+default = []
+server = [
+    "dioxus/axum",
+    "aead",
+    "scraper",
+    "once_cell",
+    "async-trait",
+    "axum",
+    "regex",
+    "base64-url",
+    "chacha20poly1305",
+    "env_logger",
+    "google-calendar3",
+    "headless_chrome",
+    "hmac",
+    "hyper-rustls",
+    "hyper",
+    "json5",
+    "jwt",
+    "pwbox",
+    "reqwest/brotli",
+    "reqwest/rustls-tls-native-roots",
+    "rsa",
+    "rustls",
+    "secure-string",
+    "sha2",
+    "sqlx",
+    "thiserror",
+    "tokio",
+    "tower-sessions-sqlx-store",
+    "tower-sessions",
+    "uuid",
+]
+web = ["dioxus/web", "dioxus-web"]
+scraper = ["dep:scraper"]
+paste = ["dep:paste"]
+regex = ["dep:regex"]
+once_cell = ["dep:once_cell"]
+hyper-rustls = ["dep:hyper-rustls"]
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"

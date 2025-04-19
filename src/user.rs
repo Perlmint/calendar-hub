@@ -1,4 +1,4 @@
-use dioxus::signals::ReadOnlySignal;
+use dioxus::hooks::Resource;
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 pub enum PublicUserKey {
@@ -12,7 +12,9 @@ impl From<&crate::server::user::UserKey> for PublicUserKey {
     fn from(value: &crate::server::user::UserKey) -> Self {
         match value {
             crate::server::user::UserKey::NotExist => crate::user::PublicUserKey::NotExist,
-            crate::server::user::UserKey::Locked(retry) => crate::user::PublicUserKey::Locked(*retry),
+            crate::server::user::UserKey::Locked(retry) => {
+                crate::user::PublicUserKey::Locked(*retry)
+            }
             crate::server::user::UserKey::Unlocked(_) => crate::user::PublicUserKey::Unlocked,
         }
     }
@@ -35,6 +37,7 @@ impl User {
         matches!(self, User::SignedIn(_))
     }
 
+    #[allow(dead_code)]
     pub fn is_locked(&self) -> bool {
         matches!(self, User::SignedIn(PublicUserKey::Locked(_)))
     }
@@ -48,4 +51,4 @@ impl User {
     }
 }
 
-pub type UserContext = ReadOnlySignal<Option<User>>;
+pub type UserContext = Resource<User>;

@@ -9,7 +9,7 @@ use crate::{
 use super::vault;
 
 #[derive(serde::Serialize, serde::Deserialize)]
-struct CgvConfig {
+struct Config {
     user_id: String,
     password: String,
 }
@@ -20,9 +20,8 @@ pub fn Page() -> Element {
 
     let on_submit = move |evt: FormEvent| {
         spawn(async move {
-            info!("submit");
             let mut values = evt.values();
-            let config = CgvConfig {
+            let config = Config {
                 user_id: unsafe {
                     values
                         .remove("user_id")
@@ -41,7 +40,7 @@ pub fn Page() -> Element {
                 },
             };
 
-            let params = vault::SetVaultItemParams::new(VaultKey::Cgv, config).unwrap();
+            let params = vault::SetVaultItemParams::new(VaultKey::Bustago, config).unwrap();
             vault::set_vault_item(params).await.unwrap();
             vault.restart();
         });
@@ -50,9 +49,9 @@ pub fn Page() -> Element {
     rsx! {
         VaultItemConfig {
             onsubmit: on_submit,
-            vault_key: VaultKey::Cgv,
+            vault_key: VaultKey::Bustago,
             key_values: &[
-                ("CJ User ID", VaultItemDetail::Unsecured("user_id")),
+                ("버스타고 User ID", VaultItemDetail::Unsecured("user_id")),
                 ("Password", VaultItemDetail::Secured("password"))
             ],
         }
@@ -80,7 +79,7 @@ pub async fn crawl() -> Result<usize, ServerFnError> {
         ));
     };
 
-    let Ok(config) = get_vault_item::<CgvConfig>(&db, &key, user.user_id, &VaultKey::Cgv).await
+    let Ok(config) = get_vault_item::<Config>(&db, &key, user.user_id, &VaultKey::Bustago).await
     else {
         return Err(ServerFnError::<NoCustomError>::ServerError(
             "Internal server error".to_string(),
@@ -90,7 +89,7 @@ pub async fn crawl() -> Result<usize, ServerFnError> {
     let updated_count = server::crawl(config, user.user_id, &db)
         .await
         .map_err(|e| {
-            error!("Failed to crawl CGV - {e:?}");
+            error!("Failed to crawl Bustago - {e:?}");
             ServerFnError::<NoCustomError>::ServerError("Internal server error".to_string())
         })?;
 
@@ -106,9 +105,9 @@ pub async fn crawl() -> Result<usize, ServerFnError> {
         }
     }
 
-    super::source::update_last_synced(user.user_id, VaultKey::Cgv, &db)
+    super::source::update_last_synced(user.user_id, VaultKey::Bustago, &db)
         .await
-        .map_err(|_| {
+        .map_err(|_e| {
             ServerFnError::<NoCustomError>::ServerError("Internal server error".to_string())
         })?;
 

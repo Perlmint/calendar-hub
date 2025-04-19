@@ -1,7 +1,8 @@
-/target
-/node_modules/
-/db*
-/google.json
-/service_account.json
-/allowed-emails
-/dist/
+*.js
+*.d.ts
+tsconfig.tsbuildinfo
+
+# npm dependencies
+node_modules/
+
+target
